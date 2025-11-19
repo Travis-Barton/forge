@@ -1,8 +1,8 @@
 package forge.env;
 
+import forge.CardStorageReader;
 import forge.LobbyPlayer;
 import forge.StaticData;
-import forge.card.CardRulesReader;
 import forge.deck.Deck;
 import forge.deck.io.DeckStorage;
 import forge.game.Game;
@@ -100,7 +100,7 @@ public final class ForgeEnv {
         File editionsDir = new File(resDir, "editions");
         File blockDataDir = new File(resDir, "blockdata");
 
-        CardRulesReader cardReader = new CardRulesReader(cardDataDir);
+        CardStorageReader cardReader = new CardStorageReader(cardDataDir.getAbsolutePath(), null, false);
 
         staticData = new StaticData(
                 cardReader,
@@ -123,8 +123,8 @@ public final class ForgeEnv {
         DeckStorage deckStorage = new DeckStorage(preconDir, resourceDirectory);
         standardDecks = new ArrayList<>();
 
-        // Load all prebuilt decks
-        for (Deck deck : deckStorage) {
+        // Load all prebuilt decks - IStorage extends Iterable
+        for (Deck deck : (Iterable<Deck>) deckStorage) {
             // Filter for Standard-legal decks (this is a simplified check)
             // In a production system, you'd verify against format legality
             if (deck != null && isStandardDeck(deck)) {
@@ -172,12 +172,8 @@ public final class ForgeEnv {
         // Create match
         Match match = new Match(rules, players, "Headless Standard Match");
 
-        // Create and start game
+        // Create and start game - controllers are created automatically by SimpleLobbyPlayer
         Game game = match.createGame();
-
-        // Assign controllers
-        game.getPlayers().get(0).setController(new HeadlessPlayerController(game, game.getPlayers().get(0), lobby1));
-        game.getPlayers().get(1).setController(new HeadlessPlayerController(game, game.getPlayers().get(1), lobby2));
 
         // Start the game
         match.startGame(game);
