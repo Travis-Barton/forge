@@ -185,15 +185,41 @@ mvn clean install
 - `forge-ai`: AI player controllers
 - `gson`: JSON serialization
 
+## Python Integration
+
+**For Python/RL integration**, see the comprehensive guide: [PYTHON_INTEGRATION.md](PYTHON_INTEGRATION.md)
+
+The guide covers:
+- Using JPype, Py4J, or REST API to bridge Python and Java
+- Building OpenAI Gym-style interfaces
+- Current capabilities vs. future RL enhancements needed
+- Complete code examples for each approach
+
+**Current V1 Scope:**
+- ✅ Game initialization (random decks, initial state)
+- ✅ State observation (JSON export)
+- ❌ Action execution (`.step()` method) - **not yet implemented**
+- ❌ Reward calculation - **not yet implemented**
+- ❌ Game progression - **not yet implemented**
+
+For a full RL interface with `.step()`, `.reset()`, and reward signals, see the "Future Enhancements" section below and the Python integration guide.
+
 ## Future Enhancements
 
+### High Priority (for RL Support)
+- **Action execution interface**: `step(String actionJson)` to execute moves
+- **Game progression**: Advance turns, phases, and handle priority
+- **Terminal state detection**: `isTerminal()` to detect game end
+- **Reward calculation**: `getReward(int playerId)` for training signals
+- **Legal action enumeration**: Get list of valid actions for current state
+
+### Additional Features
 - Support for mulligan decisions
 - Configurable starting life totals
 - Support for formats other than Standard
 - Ability to specify exact decks instead of random selection
 - Hidden information variants in JSON output
 - Support for multiplayer games
-- Incremental game state updates (take actions, get new state)
 - Partial information views (from one player's perspective)
 
 ## License
