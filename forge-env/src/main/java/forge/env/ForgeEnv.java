@@ -28,6 +28,7 @@ public final class ForgeEnv {
     private static String resourceDirectory;
     private static final Random random = MyRandom.getRandom();
     private static boolean initialized = false;
+    private static GameInstance currentGame;
 
     private ForgeEnv() {
         // Utility class, no instantiation
@@ -84,10 +85,73 @@ public final class ForgeEnv {
 
         // Create the game
         Game game = createGame(deck1, deck2);
+        
+        // Store as current game instance
+        currentGame = new GameInstance(game);
 
-        // Serialize to JSON
-        GameStateSerializer serializer = new GameStateSerializer(game);
-        return serializer.toJson();
+        // Return initial state
+        return currentGame.getState();
+    }
+    
+    /**
+     * Get valid actions for the current game state.
+     * 
+     * @return JSON string with list of valid actions
+     */
+    public static String getValidActions() {
+        if (currentGame == null) {
+            throw new IllegalStateException("No active game. Call newGame() first.");
+        }
+        return currentGame.getValidActions();
+    }
+    
+    /**
+     * Execute an action in the current game.
+     * 
+     * @param actionJson JSON string describing the action (e.g., {"type": "pass_priority"})
+     * @return JSON string of new game state after action
+     */
+    public static String step(String actionJson) {
+        if (currentGame == null) {
+            throw new IllegalStateException("No active game. Call newGame() first.");
+        }
+        return currentGame.step(actionJson);
+    }
+    
+    /**
+     * Check if the current game has ended.
+     * 
+     * @return true if game is over
+     */
+    public static boolean isTerminal() {
+        if (currentGame == null) {
+            return true;
+        }
+        return currentGame.isTerminal();
+    }
+    
+    /**
+     * Get the winner of the current game.
+     * 
+     * @return player ID (1 or 2) of winner, or -1 if no winner
+     */
+    public static int getWinner() {
+        if (currentGame == null) {
+            return -1;
+        }
+        return currentGame.getWinner();
+    }
+    
+    /**
+     * Get the current game state as JSON.
+     * 
+     * @return JSON string of current game state
+     */
+    public static String getState() {
+        if (currentGame == null) {
+            throw new IllegalStateException("No active game. Call newGame() first.");
+        }
+        return currentGame.getState();
     }
 
     private static void initializeStaticData() {
@@ -206,5 +270,6 @@ public final class ForgeEnv {
         initialized = false;
         staticData = null;
         standardDecks = null;
+        currentGame = null;
     }
 }

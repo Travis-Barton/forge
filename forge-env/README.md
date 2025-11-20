@@ -19,7 +19,7 @@ A headless, programmatic environment wrapper for the Forge MTG engine. This modu
 
 ## Usage
 
-### Basic Usage
+### Basic Usage - Game Initialization
 
 ```java
 import forge.env.ForgeEnv;
@@ -29,15 +29,55 @@ public class Example {
         // Initialize once at startup with path to forge resources
         ForgeEnv.initialize("/path/to/forge-gui/res");
         
-        // Create a new game
+        // Create a new game and get initial state
         String gameStateJson = ForgeEnv.newGame();
         System.out.println(gameStateJson);
-        
-        // Create another game
-        String anotherGame = ForgeEnv.newGame();
-        System.out.println(anotherGame);
     }
 }
+```
+
+### Step-by-Step Game Progression
+
+```java
+import forge.env.ForgeEnv;
+
+public class StepExample {
+    public static void main(String[] args) {
+        // Initialize
+        ForgeEnv.initialize("/path/to/forge-gui/res");
+        
+        // Start a new game
+        String initialState = ForgeEnv.newGame();
+        
+        // Game loop
+        while (!ForgeEnv.isTerminal()) {
+            // Get valid actions
+            String validActions = ForgeEnv.getValidActions();
+            System.out.println("Valid actions: " + validActions);
+            
+            // Execute an action (e.g., pass priority)
+            String action = "{\"type\": \"pass_priority\"}";
+            String newState = ForgeEnv.step(action);
+            
+            System.out.println("New state: " + newState);
+        }
+        
+        // Game ended
+        int winner = ForgeEnv.getWinner();
+        System.out.println("Winner: Player " + winner);
+    }
+}
+```
+
+### Playing Cards
+
+```java
+// Get valid actions
+String actionsJson = ForgeEnv.getValidActions();
+// Parse to find a playable card
+// Then play it:
+String playAction = "{\"type\": \"play_spell\", \"cardId\": 12345}";
+String newState = ForgeEnv.step(playAction);
 ```
 
 ### Using Default Resource Path
@@ -150,6 +190,62 @@ Creates and initializes a new 1v1 Standard game with random prebuilt decks.
 **Throws:**
 - `IllegalStateException` if called before `initialize()`
 
+### `ForgeEnv.step(String actionJson)`
+Execute an action in the current game and return the new state.
+
+**Parameters:**
+- `actionJson`: JSON string describing the action, e.g., `{"type": "pass_priority"}` or `{"type": "play_spell", "cardId": 123}`
+
+**Returns:**
+- JSON string representation of the new game state
+
+**Throws:**
+- `IllegalStateException` if no active game exists
+
+**Example actions:**
+```json
+{"type": "pass_priority"}
+{"type": "play_spell", "cardId": 12345}
+{"type": "activate_ability", "cardId": 12345}
+```
+
+### `ForgeEnv.getValidActions()`
+Get all valid actions for the current game state.
+
+**Returns:**
+- JSON string with array of valid actions, including action IDs, types, card IDs/names, and descriptions
+
+**Example response:**
+```json
+{
+  "actions": [
+    {"id": 0, "type": "play_spell", "cardId": 123, "cardName": "Forest", "description": "Play Forest"},
+    {"id": 1, "type": "pass_priority", "description": "Pass priority"}
+  ],
+  "activePlayerId": 1,
+  "phase": "Main Phase 1",
+  "turn": 1
+}
+```
+
+### `ForgeEnv.getState()`
+Get the current game state without executing an action.
+
+**Returns:**
+- JSON string of current game state
+
+### `ForgeEnv.isTerminal()`
+Check if the current game has ended.
+
+**Returns:**
+- `true` if game is over, `false` otherwise
+
+### `ForgeEnv.getWinner()`
+Get the winner of the current game (if terminal).
+
+**Returns:**
+- Player ID (1 or 2) of winner, or -1 if no winner or game not over
+
 ### `ForgeEnv.isInitialized()`
 Checks if the environment has been initialized.
 
@@ -161,9 +257,6 @@ Gets the number of Standard decks available.
 
 **Returns:**
 - Number of loaded Standard decks, or 0 if not initialized
-
-### `ForgeEnv.reset()` (Package-private)
-Resets the environment state. Used primarily for testing.
 
 ## Building
 
@@ -192,26 +285,63 @@ mvn clean install
 The guide covers:
 - Using JPype, Py4J, or REST API to bridge Python and Java
 - Building OpenAI Gym-style interfaces
-- Current capabilities vs. future RL enhancements needed
 - Complete code examples for each approach
 
-**Current V1 Scope:**
+**Current V2 Scope:**
 - ✅ Game initialization (random decks, initial state)
-- ✅ State observation (JSON export)
-- ❌ Action execution (`.step()` method) - **not yet implemented**
-- ❌ Reward calculation - **not yet implemented**
-- ❌ Game progression - **not yet implemented**
+- ✅ State observation (JSON export with `getState()`)
+- ✅ Action execution (`.step()` method) - **NOW IMPLEMENTED**
+- ✅ Valid action enumeration (`getValidActions()`)
+- ✅ Terminal state detection (`isTerminal()`)
+- ✅ Winner determination (`getWinner()`)
+- ❌ Reward calculation - **manual implementation needed**
+- ❌ Advanced targeting/choices - **basic implementation only**
 
-For a full RL interface with `.step()`, `.reset()`, and reward signals, see the "Future Enhancements" section below and the Python integration guide.
+### Quick Python Example
+
+```python
+import jpype
+import json
+
+jpype.startJVM(classpath=['forge-env-jar-with-dependencies.jar'])
+from forge.env import ForgeEnv
+
+# Initialize
+ForgeEnv.initialize('/path/to/forge-gui/res')
+
+# Start game
+state = json.loads(ForgeEnv.newGame())
+
+# Game loop
+while not ForgeEnv.isTerminal():
+    # Get valid actions
+    actions = json.loads(ForgeEnv.getValidActions())
+    print(f"Turn {actions['turn']}, {actions['phase']}")
+    print(f"Valid actions: {len(actions['actions'])}")
+    
+    # Take action (pass priority for this example)
+    new_state = json.loads(ForgeEnv.step('{"type": "pass_priority"}'))
+    
+print(f"Game over! Winner: Player {ForgeEnv.getWinner()}")
+```
+
+For a full RL interface with reward signals and Gym compatibility, see the Python integration guide.
 
 ## Future Enhancements
 
-### High Priority (for RL Support)
-- **Action execution interface**: `step(String actionJson)` to execute moves
-- **Game progression**: Advance turns, phases, and handle priority
-- **Terminal state detection**: `isTerminal()` to detect game end
+### Completed in V2
+- ✅ **Action execution interface**: `step(String actionJson)` to execute moves
+- ✅ **Game progression**: Advance turns and phases via priority passing
+- ✅ **Terminal state detection**: `isTerminal()` to detect game end
+- ✅ **Valid action enumeration**: `getValidActions()` lists available moves
+- ✅ **Winner determination**: `getWinner()` returns winning player
+
+### High Priority (for Enhanced RL Support)
 - **Reward calculation**: `getReward(int playerId)` for training signals
-- **Legal action enumeration**: Get list of valid actions for current state
+- **Advanced targeting**: Handle spell targets, combat choices, modal selections
+- **Mana payment**: Automatic or interactive mana payment for spells
+- **Combat system**: Full declare attackers/blockers support
+- **Stack interaction**: Responding to opponent's spells
 
 ### Additional Features
 - Support for mulligan decisions
@@ -221,6 +351,8 @@ For a full RL interface with `.step()`, `.reset()`, and reward signals, see the 
 - Hidden information variants in JSON output
 - Support for multiplayer games
 - Partial information views (from one player's perspective)
+- State-based action snapshots
+- Replay/undo functionality
 
 ## License
 

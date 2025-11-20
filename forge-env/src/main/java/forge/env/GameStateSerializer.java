@@ -118,7 +118,7 @@ class GameStateSerializer {
         return cardObj;
     }
 
-    private String getPhaseDisplayName(PhaseType phase) {
+    String getPhaseDisplayName(PhaseType phase) {
         if (phase == null) {
             return "Unknown";
         }
