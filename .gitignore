@@ -94,5 +94,13 @@ forge-gui/tools/PerSetTrackingResults
 # Ignore python temporaries
 __pycache__
 *.pyc
+*.pyo
+*.egg-info
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg
 headless_game.log
 HEADLESS_README.md
