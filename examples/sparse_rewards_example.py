@@ -145,7 +145,14 @@ def custom_reward_example():
     
     print("\nYou can also create your own reward function:")
     print("""
+# Example: Custom reward function
 class CustomForgeEnv(forge_gym.ForgeEnv):
+    '''
+    Custom environment with your own reward logic.
+    Note: When you override _calculate_reward, the reward_mode parameter
+    is ignored since you're providing your own implementation.
+    '''
+    
     def _calculate_reward(self, previous_state, current_state):
         # Option 1: Pure sparse - only final outcome
         # Check if game ended
@@ -165,9 +172,10 @@ class CustomForgeEnv(forge_gym.ForgeEnv):
         return 0.0  # Game still ongoing
         
         # Option 2: Custom shaping - reward for board presence
+        # reward = 0.0
         # prev_creatures = len(previous_state.get('players', [{}])[0].get('battlefield', []))
         # curr_creatures = len(current_state.get('players', [{}])[0].get('battlefield', []))
-        # reward = (curr_creatures - prev_creatures) * 0.5
+        # reward += (curr_creatures - prev_creatures) * 0.5
         # 
         # # Add win/loss bonus
         # if len(current_state.get('players', [])) >= 2:
@@ -176,6 +184,13 @@ class CustomForgeEnv(forge_gym.ForgeEnv):
         #     elif current_state['players'][0]['life'] <= 0:
         #         reward -= 10.0  # Loss penalty
         # 
+        # return reward
+
+# Use your custom environment
+# Note: reward_mode parameter is ignored when you override _calculate_reward
+env = CustomForgeEnv()
+""")
+    print("=" * 60)
         # return reward
 
 # Use your custom environment

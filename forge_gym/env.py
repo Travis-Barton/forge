@@ -448,6 +448,11 @@ class ForgeEnv(gym.Env):
                     reward += 10.0  # Win
                 elif curr_p0_life <= 0:
                     reward -= 10.0  # Lose
+            
+            else:
+                # Should never reach here due to validation in __init__
+                # but handle gracefully
+                raise ValueError(f"Invalid reward_mode: {self.reward_mode}")
         
         return reward
     
