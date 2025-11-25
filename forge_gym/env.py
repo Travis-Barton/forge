@@ -66,6 +66,10 @@ class ForgeEnv(gym.Env):
         """
         super().__init__()
         
+        # Validate reward_mode
+        if reward_mode not in ["sparse", "dense"]:
+            raise ValueError(f"reward_mode must be 'sparse' or 'dense', got '{reward_mode}'")
+        
         self.jar_path = jar_path or self._find_jar_path()
         self.java_cmd = self._get_java_cmd(java_home)
         self.player1_is_human = player1_is_human

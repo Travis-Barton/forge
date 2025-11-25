@@ -148,21 +148,29 @@ def custom_reward_example():
 class CustomForgeEnv(forge_gym.ForgeEnv):
     def _calculate_reward(self, previous_state, current_state):
         # Option 1: Pure sparse - only final outcome
-        if self._is_terminated():
-            p0_life = current_state['players'][0]['life']
-            p1_life = current_state['players'][1]['life']
+        # Check if game ended
+        if not current_state or not current_state.get('players'):
+            return 0.0
+            
+        players = current_state.get('players', [{}, {}])
+        if len(players) >= 2:
+            p0_life = players[0].get('life', 20)
+            p1_life = players[1].get('life', 20)
+            
             if p1_life <= 0:
                 return 1.0  # Win
             elif p0_life <= 0:
                 return -1.0  # Loss
-        return 0.0
+        
+        return 0.0  # Game still ongoing
         
         # Option 2: Custom shaping - reward for board presence
-        # prev_creatures = len(previous_state['players'][0]['battlefield'])
-        # curr_creatures = len(current_state['players'][0]['battlefield'])
+        # prev_creatures = len(previous_state.get('players', [{}])[0].get('battlefield', []))
+        # curr_creatures = len(current_state.get('players', [{}])[0].get('battlefield', []))
         # reward = (curr_creatures - prev_creatures) * 0.5
         # 
-        # if self._is_terminated():
+        # # Add win/loss bonus
+        # if len(current_state.get('players', [])) >= 2:
         #     if current_state['players'][1]['life'] <= 0:
         #         reward += 10.0  # Win bonus
         #     elif current_state['players'][0]['life'] <= 0:
