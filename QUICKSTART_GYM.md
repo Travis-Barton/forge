@@ -74,17 +74,77 @@ Testing environment instantiation...
 
 ## Basic Usage
 
-### Example 1: Random Agent
+### Understanding Reward Modes
+
+**IMPORTANT:** The environment supports two reward modes:
+
+1. **Sparse Rewards (Default - Recommended for your use case):**
+   ```python
+   env = forge_gym.ForgeEnv(reward_mode="sparse")
+   ```
+   - Reward = 0 for all steps during the game
+   - Reward = +1 when you WIN the game
+   - Reward = -1 when you LOSE the game
+   - **This is what you want for learning from entire games!**
+
+2. **Dense Rewards:**
+   ```python
+   env = forge_gym.ForgeEnv(reward_mode="dense")
+   ```
+   - Small rewards/penalties for life changes each step
+   - Large reward/penalty for win/loss
+   - Better for faster initial learning but may focus on wrong objectives
+
+### Example 1: Sparse Rewards (Win/Loss Only)
 
 ```python
 import forge_gym
 
-# Create environment
+# Create environment with SPARSE rewards (default)
+# This is for learning from the entire game outcome
 env = forge_gym.ForgeEnv(
     player1_is_human=True,   # RL agent controls player 1
     player2_is_human=False,  # AI controls player 2
     max_turns=20,
-    render_mode="human"
+    reward_mode="sparse"     # Only win/loss matters!
+)
+
+# Reset and run
+observation, info = env.reset()
+episode_reward = 0
+
+for _ in range(100):
+    # Sample random action (or use your trained policy)
+    action = env.action_space.sample()
+    
+    # Take step
+    obs, reward, terminated, truncated, info = env.step(action)
+    episode_reward += reward
+    
+    # During the game, reward will be 0
+    # At the end: +1 for win, -1 for loss
+    
+    if terminated or truncated:
+        print(f"Game ended! Final reward: {episode_reward}")
+        # episode_reward will be 1, -1, or 0
+        observation, info = env.reset()
+        episode_reward = 0
+
+env.close()
+```
+
+### Example 2: Random Agent
+
+```python
+import forge_gym
+
+# Create environment (sparse rewards by default)
+env = forge_gym.ForgeEnv(
+    player1_is_human=True,   # RL agent controls player 1
+    player2_is_human=False,  # AI controls player 2
+    max_turns=20,
+    render_mode="human",
+    reward_mode="sparse"     # Learn from win/loss only
 )
 
 # Reset and run
@@ -106,7 +166,7 @@ for _ in range(100):
 env.close()
 ```
 
-### Example 2: Using with Stable-Baselines3
+### Example 3: Using with Stable-Baselines3
 
 First install stable-baselines3:
 
@@ -121,8 +181,8 @@ import forge_gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 
-# Create environment
-env = forge_gym.ForgeEnv(max_turns=30)
+# Create environment with sparse rewards (default)
+env = forge_gym.ForgeEnv(max_turns=30, reward_mode="sparse")
 
 # Verify environment follows Gym API
 check_env(env)

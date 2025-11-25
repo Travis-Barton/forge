@@ -50,6 +50,7 @@ class ForgeEnv(gym.Env):
         player2_is_human: bool = False,
         max_turns: int = 100,
         render_mode: Optional[str] = None,
+        reward_mode: str = "sparse",
     ):
         """
         Initialize the Forge Gym environment.
@@ -61,6 +62,7 @@ class ForgeEnv(gym.Env):
             player2_is_human: Whether player 2 is human-controlled (True) or AI (False)
             max_turns: Maximum number of turns before episode terminates
             render_mode: How to render the environment ("human" or "ansi")
+            reward_mode: Reward mode - "sparse" (only final win/loss) or "dense" (step-by-step)
         """
         super().__init__()
         
@@ -70,6 +72,7 @@ class ForgeEnv(gym.Env):
         self.player2_is_human = player2_is_human
         self.max_turns = max_turns
         self.render_mode = render_mode
+        self.reward_mode = reward_mode  # "sparse" or "dense"
         
         # Process handle
         self.process: Optional[subprocess.Popen] = None
@@ -389,11 +392,18 @@ class ForgeEnv(gym.Env):
         """
         Calculate reward based on state transition.
         
-        Simple reward function:
-        - Positive reward for opponent losing life
-        - Negative reward for losing life
-        - Large positive reward for winning
-        - Large negative reward for losing
+        Reward modes:
+        
+        1. "sparse" (default): Only final win/loss matters
+           - 0.0 for all intermediate steps
+           - 1.0 for winning the game
+           - -1.0 for losing the game
+           
+        2. "dense": Step-by-step rewards
+           - Small positive reward for opponent losing life
+           - Small negative reward for losing life
+           - Large positive reward for winning
+           - Large negative reward for losing
         """
         if not previous_state or not current_state:
             return 0.0
@@ -410,19 +420,30 @@ class ForgeEnv(gym.Env):
             prev_p1_life = prev_players[1].get('life', 20)
             curr_p1_life = curr_players[1].get('life', 20)
             
-            # Reward for opponent losing life
-            if curr_p1_life < prev_p1_life:
-                reward += (prev_p1_life - curr_p1_life) * 0.1
+            if self.reward_mode == "sparse":
+                # Sparse rewards: Only reward at game end
+                if curr_p1_life <= 0:
+                    reward = 1.0  # Win
+                elif curr_p0_life <= 0:
+                    reward = -1.0  # Lose
+                else:
+                    reward = 0.0  # No reward during game
             
-            # Penalty for losing life
-            if curr_p0_life < prev_p0_life:
-                reward -= (prev_p0_life - curr_p0_life) * 0.1
-            
-            # Large reward/penalty for game ending
-            if curr_p1_life <= 0:
-                reward += 10.0  # Win
-            elif curr_p0_life <= 0:
-                reward -= 10.0  # Lose
+            elif self.reward_mode == "dense":
+                # Dense rewards: Reward for life changes
+                # Reward for opponent losing life
+                if curr_p1_life < prev_p1_life:
+                    reward += (prev_p1_life - curr_p1_life) * 0.1
+                
+                # Penalty for losing life
+                if curr_p0_life < prev_p0_life:
+                    reward -= (prev_p0_life - curr_p0_life) * 0.1
+                
+                # Large reward/penalty for game ending
+                if curr_p1_life <= 0:
+                    reward += 10.0  # Win
+                elif curr_p0_life <= 0:
+                    reward -= 10.0  # Lose
         
         return reward
     

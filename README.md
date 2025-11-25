@@ -91,6 +91,8 @@ observation, reward, terminated, truncated, info = env.step(action)
 
 **✨ Features:**
 - Standard Gymnasium API (reset, step, render, close)
+- **Sparse rewards by default** (learn from win/loss, not individual steps)
+- Configurable reward modes (sparse or dense)
 - Configurable player modes (human/AI controlled)
 - Rich observations (life, hand size, battlefield state)
 - Dynamic action space for playing lands, spells, and abilities

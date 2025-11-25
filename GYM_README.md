@@ -83,6 +83,50 @@ env.close()
 print(f"Episode finished with total reward: {total_reward}")
 ```
 
+### Sparse Rewards for Win/Loss Learning
+
+**Important:** By default, the environment uses **sparse rewards** where only the final game outcome matters:
+
+```python
+import forge_gym
+
+# Sparse rewards (default): Only win/loss matters
+env = forge_gym.ForgeEnv(
+    max_turns=30,
+    reward_mode="sparse"  # 0 during game, +1 for win, -1 for loss
+)
+
+# Train with sparse rewards
+obs, info = env.reset()
+episode_reward = 0
+
+while True:
+    action = your_policy(obs)  # Your RL agent
+    obs, reward, terminated, truncated, info = env.step(action)
+    episode_reward += reward
+    
+    if terminated or truncated:
+        print(f"Game ended. Final reward: {episode_reward}")
+        # episode_reward will be 1 (win), -1 (loss), or 0 (truncated)
+        obs, info = env.reset()
+        episode_reward = 0
+
+env.close()
+```
+
+**Why sparse rewards?**
+- Focuses on the ultimate goal: winning the game
+- Avoids reward hacking (e.g., focusing only on life totals)
+- Works well with Monte Carlo methods and modern RL algorithms (PPO, SAC)
+- Better for learning long-term strategy
+
+**When to use dense rewards instead:**
+- Faster initial learning on simple tasks
+- When you want to encourage specific behaviors (like dealing damage)
+- Set `reward_mode="dense"` in the constructor
+
+See `examples/sparse_rewards_example.py` for a complete demonstration.
+
 ### Example with Stable-Baselines3
 
 ```python
@@ -123,6 +167,22 @@ The main environment class.
 - `player2_is_human` (bool, default=False): Whether player 2 is controlled by the RL agent (True) or AI (False)
 - `max_turns` (int, default=100): Maximum number of turns before episode truncates
 - `render_mode` (str, optional): Rendering mode ("human" or "ansi")
+- `reward_mode` (str, default="sparse"): Reward mode - "sparse" or "dense"
+
+**Reward Modes:**
+
+1. **`"sparse"` (default)**: Learn from final game outcome only
+   - `0.0` for all intermediate steps
+   - `1.0` when you win the game
+   - `-1.0` when you lose the game
+   - Best for: Overall strategy, Monte Carlo methods, avoiding reward hacking
+
+2. **`"dense"`: Learn from step-by-step feedback
+   - `+0.1` per life opponent loses
+   - `-0.1` per life you lose
+   - `+10.0` for winning
+   - `-10.0` for losing
+   - Best for: Tactical play, faster initial learning, DQN/A2C
 
 #### Methods
 
