@@ -67,6 +67,39 @@ For comprehensive gameplay instructions, visit our [User Guide](https://github.c
 
 ---
 
+## 🤖 Reinforcement Learning & AI Development
+
+Forge includes a **Gymnasium-compatible environment** for training reinforcement learning agents!
+
+### 🐍 Python Gym Environment
+
+Train AI agents to play Magic: The Gathering using popular RL frameworks like Stable-Baselines3, RLlib, or any Gymnasium-compatible library.
+
+```python
+import forge_gym
+
+# Create the environment
+env = forge_gym.ForgeEnv()
+
+# Standard Gym API
+observation, info = env.reset()
+action = env.action_space.sample()
+observation, reward, terminated, truncated, info = env.step(action)
+```
+
+**📚 Full Documentation:** See [GYM_README.md](GYM_README.md) for complete setup instructions and examples.
+
+**✨ Features:**
+- Standard Gymnasium API (reset, step, render, close)
+- **Sparse rewards by default** (learn from win/loss, not individual steps)
+- Configurable reward modes (sparse or dense)
+- Configurable player modes (human/AI controlled)
+- Rich observations (life, hand size, battlefield state)
+- Dynamic action space for playing lands, spells, and abilities
+- Compatible with popular RL libraries
+
+---
+
 ## 💬 Support & Community
 
 Need help? Join our vibrant Discord community! 
