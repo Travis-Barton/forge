@@ -69,8 +69,8 @@ public class HeadlessServerGameLobby extends ServerGameLobby {
     
     @Override
     public boolean mayRemove(final int index) {
-        // Never allow removal of AI slot
-        return false;
+        // Only protect the AI slot (slot 1) from removal
+        return index != 1;
     }
     
     @Override

@@ -161,7 +161,7 @@ public class ForgeHeadlessServer {
      */
     private static void printHelp() {
         System.out.println("Forge Headless Server");
-        System.out.println("Usage: java -jar forge-headless-server.jar [options]");
+        System.out.println("Usage: java -cp forge-gui-desktop-<version>-jar-with-dependencies.jar forge.view.ForgeHeadlessServer [options]");
         System.out.println();
         System.out.println("Options:");
         System.out.println("  --network              Enable network mode for GUI clients");
