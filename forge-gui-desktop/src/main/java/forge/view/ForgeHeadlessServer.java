@@ -250,11 +250,35 @@ public class ForgeHeadlessServer {
      */
     private static JsonObject buildCreatureJson(final Card creature) {
         JsonObject info = new JsonObject();
+        info.addProperty("id", creature.getId());
         info.addProperty("name", creature.getName());
         info.addProperty("tapped", creature.isTapped());
         info.addProperty("power", creature.getNetPower());
         info.addProperty("toughness", creature.getNetToughness());
         info.addProperty("summoning_sick", creature.hasSickness());
+
+        // Add creature types (Human, Elf, etc.)
+        if (creature.getType() != null && !creature.getType().getCreatureTypes().isEmpty()) {
+            final JsonArray types = new JsonArray();
+            for (final String type : creature.getType().getCreatureTypes()) {
+                types.add(type);
+            }
+            info.add("creature_types", types);
+        }
+
+        // Add keywords (flying, trample, vigilance, etc.)
+        if (!creature.getKeywords().isEmpty()) {
+            final JsonArray keywords = new JsonArray();
+            for (final forge.game.keyword.KeywordInterface kw : creature.getKeywords()) {
+                keywords.add(kw.getOriginal());
+            }
+            info.add("keywords", keywords);
+        }
+
+        // Add mana cost
+        if (creature.getManaCost() != null) {
+            info.addProperty("mana_cost", creature.getManaCost().toString());
+        }
 
         // Add counters (including +1/+1 counters)
         if (!creature.getCounters().isEmpty()) {
@@ -275,6 +299,91 @@ public class ForgeHeadlessServer {
                 attachments.add(attach);
             }
             info.add("attachments", attachments);
+        }
+
+        // Add activated abilities (simplified description)
+        final JsonArray abilities = new JsonArray();
+        for (final SpellAbility sa : creature.getSpellAbilities()) {
+            if (sa.isActivatedAbility()) {
+                JsonObject abilityInfo = new JsonObject();
+                abilityInfo.addProperty("description", sa.toString());
+                if (sa.getPayCosts() != null) {
+                    abilityInfo.addProperty("cost", sa.getPayCosts().toSimpleString());
+                }
+                abilities.add(abilityInfo);
+            }
+        }
+        if (abilities.size() > 0) {
+            info.add("activated_abilities", abilities);
+        }
+
+        return info;
+    }
+
+    /**
+     * Builds a JSON object for a non-creature permanent (artifact, enchantment,
+     * planeswalker).
+     */
+    private static JsonObject buildPermanentJson(final Card permanent) {
+        JsonObject info = new JsonObject();
+        info.addProperty("id", permanent.getId());
+        info.addProperty("name", permanent.getName());
+        info.addProperty("tapped", permanent.isTapped());
+
+        // Type line
+        if (permanent.getType() != null) {
+            info.addProperty("type_line", permanent.getType().toString());
+        }
+
+        // Mana cost
+        if (permanent.getManaCost() != null) {
+            info.addProperty("mana_cost", permanent.getManaCost().toString());
+        }
+
+        // For planeswalkers, add loyalty
+        if (permanent.isPlaneswalker()) {
+            info.addProperty("loyalty", permanent.getCurrentLoyalty());
+        }
+
+        // Counters
+        if (!permanent.getCounters().isEmpty()) {
+            JsonObject counters = new JsonObject();
+            for (java.util.Map.Entry<forge.game.card.CounterType, Integer> entry : permanent.getCounters().entrySet()) {
+                counters.addProperty(entry.getKey().getName(), entry.getValue());
+            }
+            info.add("counters", counters);
+        }
+
+        // Attached cards (for auras, equipment on artifacts, etc.)
+        if (!permanent.getAllAttachedCards().isEmpty()) {
+            JsonArray attachments = new JsonArray();
+            for (final Card attached : permanent.getAllAttachedCards()) {
+                JsonObject attach = new JsonObject();
+                attach.addProperty("name", attached.getName());
+                attachments.add(attach);
+            }
+            info.add("attachments", attachments);
+        }
+
+        // For auras, show what they're attached to
+        if (permanent.isAura() && permanent.getAttachedTo() != null) {
+            info.addProperty("attached_to", permanent.getAttachedTo().getName());
+        }
+
+        // Activated abilities
+        final JsonArray abilities = new JsonArray();
+        for (final SpellAbility sa : permanent.getSpellAbilities()) {
+            if (sa.isActivatedAbility()) {
+                JsonObject abilityInfo = new JsonObject();
+                abilityInfo.addProperty("description", sa.toString());
+                if (sa.getPayCosts() != null) {
+                    abilityInfo.addProperty("cost", sa.getPayCosts().toSimpleString());
+                }
+                abilities.add(abilityInfo);
+            }
+        }
+        if (abilities.size() > 0) {
+            info.add("activated_abilities", abilities);
         }
 
         return info;
@@ -1070,6 +1179,47 @@ public class ForgeHeadlessServer {
                 state.addProperty("phase", "SETUP");
             }
 
+            // Active player and priority info - simplified for policy
+            final Player activePlayer = game.getPhaseHandler().getPlayerTurn();
+            // Find our agent player
+            Player agent = null;
+            for (Player p : game.getPlayers()) {
+                if (p.getController() instanceof ServerPlayerController) {
+                    agent = p;
+                    break;
+                }
+            }
+            // is_my_turn: true when it's the agent's turn
+            if (agent != null && activePlayer != null) {
+                state.addProperty("is_my_turn", activePlayer.equals(agent));
+            }
+
+            // Stack contents (spells and abilities waiting to resolve)
+            final JsonArray stackArray = new JsonArray();
+            for (final forge.game.spellability.SpellAbilityStackInstance si : game.getStack()) {
+                final JsonObject stackItem = new JsonObject();
+                stackItem.addProperty("name", si.getStackDescription());
+                if (si.getSourceCard() != null) {
+                    stackItem.addProperty("source_card", si.getSourceCard().getName());
+                }
+                if (si.getActivatingPlayer() != null) {
+                    stackItem.addProperty("controller", si.getActivatingPlayer().getName());
+                }
+                stackItem.addProperty("is_spell", si.isSpell());
+                stackItem.addProperty("is_ability", si.isAbility());
+                // Add targets if any
+                final forge.game.spellability.SpellAbility sa = si.getSpellAbility();
+                if (sa != null && sa.usesTargeting() && sa.getTargets() != null) {
+                    final JsonArray targets = new JsonArray();
+                    for (final forge.game.GameObject tgt : sa.getTargets()) {
+                        targets.add(tgt.toString());
+                    }
+                    stackItem.add("targets", targets);
+                }
+                stackArray.add(stackItem);
+            }
+            state.add("stack", stackArray);
+
             // Include deck information in the initial observation
             // This helps the agent know what cards they're playing with
             // Only send Player 1's deck (the agent) - don't leak opponent's deck!
@@ -1093,27 +1243,32 @@ public class ForgeHeadlessServer {
             } else {
                 state.addProperty("game_over", false);
                 // Only add possible actions if game is not over
-                // We need a player reference here. Since this is static, we might need to pass
-                // it or find it.
-                // For now, we'll assume Player 1 is the agent.
-                // A better way is to have ServerPlayerController call this with its player.
-                // But waitForDecisionPoint calls this too.
-                // Let's iterate players to find the ServerPlayer/Human.
-                Player agent = null;
-                for (Player p : game.getPlayers()) {
-                    if (p.getController() instanceof ServerPlayerController) {
-                        agent = p;
-                        break;
-                    }
-                }
+                // agent was already defined above for is_my_turn check
                 if (agent != null) {
                     state.add("possible_actions", getPossibleActions(agent, game));
 
                     try {
-                        // Add hand
+                        // Add hand with full card details
                         final JsonArray hand = new JsonArray();
                         for (final Card c : agent.getCardsIn(ZoneType.Hand)) {
-                            hand.add(c.toString());
+                            JsonObject cardInfo = new JsonObject();
+                            cardInfo.addProperty("id", c.getId());
+                            cardInfo.addProperty("name", c.getName());
+                            if (c.getManaCost() != null) {
+                                cardInfo.addProperty("mana_cost", c.getManaCost().toString());
+                            }
+                            if (c.getType() != null) {
+                                cardInfo.addProperty("type_line", c.getType().toString());
+                            }
+                            cardInfo.addProperty("is_land", c.isLand());
+                            cardInfo.addProperty("is_creature", c.isCreature());
+                            cardInfo.addProperty("is_instant", c.isInstant());
+                            cardInfo.addProperty("is_sorcery", c.isSorcery());
+                            // Oracle text / rules text
+                            if (c.getRules() != null && c.getRules().getOracleText() != null) {
+                                cardInfo.addProperty("oracle_text", c.getRules().getOracleText());
+                            }
+                            hand.add(cardInfo);
                         }
                         state.add("hand", hand);
 
@@ -1161,10 +1316,72 @@ public class ForgeHeadlessServer {
                             battlefield.add("player2_lands", player2Lands);
                         }
 
+                        // Add non-creature permanents (artifacts, enchantments, planeswalkers)
+                        final JsonArray player1Permanents = new JsonArray();
+                        for (final Card perm : agent.getCardsIn(ZoneType.Battlefield)) {
+                            if (!perm.isCreature() && !perm.isLand()) {
+                                player1Permanents.add(buildPermanentJson(perm));
+                            }
+                        }
+                        battlefield.add("player1_other_permanents", player1Permanents);
+
+                        if (opponent != null) {
+                            final JsonArray player2Permanents = new JsonArray();
+                            for (final Card perm : opponent.getCardsIn(ZoneType.Battlefield)) {
+                                if (!perm.isCreature() && !perm.isLand()) {
+                                    player2Permanents.add(buildPermanentJson(perm));
+                                }
+                            }
+                            battlefield.add("player2_other_permanents", player2Permanents);
+                        }
+
                         state.add("battlefield", battlefield);
+
+                        // Add mana pool (current floating mana)
+                        final JsonObject manaPool = new JsonObject();
+                        final forge.game.mana.ManaPool pool = agent.getManaPool();
+                        manaPool.addProperty("white", pool.getAmountOfColor(forge.card.MagicColor.WHITE));
+                        manaPool.addProperty("blue", pool.getAmountOfColor(forge.card.MagicColor.BLUE));
+                        manaPool.addProperty("black", pool.getAmountOfColor(forge.card.MagicColor.BLACK));
+                        manaPool.addProperty("red", pool.getAmountOfColor(forge.card.MagicColor.RED));
+                        manaPool.addProperty("green", pool.getAmountOfColor(forge.card.MagicColor.GREEN));
+                        manaPool.addProperty("colorless", pool.getAmountOfColor(forge.card.MagicColor.COLORLESS));
+                        state.add("mana_pool", manaPool);
+
+                        // Land drop status - check if already played max lands this turn
+                        final int landsPlayed = agent.getLandsPlayedThisTurn();
+                        final int maxLands = agent.getMaxLandPlays();
+                        state.addProperty("lands_played_this_turn", landsPlayed);
+                        state.addProperty("max_land_drops", maxLands);
+                        state.addProperty("can_play_land", landsPlayed < maxLands || agent.getMaxLandPlaysInfinite());
+
+                        // Exile zone for agent (public info)
+                        final JsonArray player1Exile = new JsonArray();
+                        for (final Card c : agent.getCardsIn(ZoneType.Exile)) {
+                            JsonObject exileCard = new JsonObject();
+                            exileCard.addProperty("name", c.getName());
+                            exileCard.addProperty("id", c.getId());
+                            if (c.getType() != null) {
+                                exileCard.addProperty("type_line", c.getType().toString());
+                            }
+                            player1Exile.add(exileCard);
+                        }
+                        state.add("player1_exile", player1Exile);
+
+                        if (opponent != null) {
+                            final JsonArray player2Exile = new JsonArray();
+                            for (final Card c : opponent.getCardsIn(ZoneType.Exile)) {
+                                JsonObject exileCard = new JsonObject();
+                                exileCard.addProperty("name", c.getName());
+                                exileCard.addProperty("id", c.getId());
+                                player2Exile.add(exileCard);
+                            }
+                            state.add("player2_exile", player2Exile);
+                        }
 
                         // Add player stats (public information)
                         final JsonObject player1Stats = new JsonObject();
+                        player1Stats.addProperty("name", agent.getName());
                         player1Stats.addProperty("life", agent.getLife());
                         player1Stats.addProperty("hand_size", agent.getCardsIn(ZoneType.Hand).size());
                         player1Stats.addProperty("library_size", agent.getCardsIn(ZoneType.Library).size());
@@ -1180,6 +1397,7 @@ public class ForgeHeadlessServer {
 
                         if (opponent != null) {
                             final JsonObject player2Stats = new JsonObject();
+                            player2Stats.addProperty("name", opponent.getName());
                             player2Stats.addProperty("life", opponent.getLife());
                             player2Stats.addProperty("hand_size", opponent.getCardsIn(ZoneType.Hand).size());
                             player2Stats.addProperty("library_size", opponent.getCardsIn(ZoneType.Library).size());
@@ -1286,6 +1504,18 @@ public class ForgeHeadlessServer {
         for (final SpellAbility sa : spellAbilities) {
             // Filter to only abilities the player can actually activate
             if (sa.canPlay() && sa.getActivatingPlayer() == player) {
+                // Skip if this spell requires targets but has no valid targets
+                if (sa.usesTargeting()) {
+                    final forge.game.spellability.TargetRestrictions tgt = sa.getTargetRestrictions();
+                    if (tgt != null) {
+                        // Check if there are any valid target types defined
+                        final String[] validTgts = tgt.getValidTgts();
+                        if (validTgts == null || validTgts.length == 0) {
+                            continue; // Skip - no valid target types defined
+                        }
+                    }
+                }
+
                 final JsonObject action = new JsonObject();
                 final Card source = sa.getHostCard();
 
@@ -1299,6 +1529,10 @@ public class ForgeHeadlessServer {
                 action.addProperty("card_name", source != null ? source.getName() : "Unknown");
                 action.addProperty("ability_description", sa.getDescription());
                 action.addProperty("mana_cost", sa.getPayCosts() != null ? sa.getPayCosts().toSimpleString() : "");
+
+                // Add timing info - check if it can be played at instant speed
+                final boolean isInstantSpeed = sa.getRestrictions() != null && sa.getRestrictions().isInstantSpeed();
+                action.addProperty("is_instant", isInstantSpeed || (source != null && source.isInstant()));
 
                 // Add target information
                 if (sa.usesTargeting()) {
