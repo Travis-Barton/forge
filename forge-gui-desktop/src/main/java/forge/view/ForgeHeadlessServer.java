@@ -31,6 +31,7 @@ import forge.util.Aggregates;
 import forge.util.FileSection;
 import forge.util.FileUtil;
 import forge.gamemodes.puzzle.Puzzle;
+import forge.gamemodes.net.server.FServerManager;
 
 import java.io.BufferedReader;
 import java.io.FileWriter;
@@ -55,6 +56,7 @@ import java.util.stream.Collectors;
  */
 public class ForgeHeadlessServer {
     private static final int PORT = 8080;
+    private static final int DEFAULT_NETWORK_PORT = 9999;
     private static final int HTTP_OK = 200;
     private static final int HTTP_METHOD_NOT_ALLOWED = 405;
 
@@ -62,6 +64,10 @@ public class ForgeHeadlessServer {
     private static final int WAIT_TIMEOUT_MS = 5000;
     private static final int SLEEP_INTERVAL_MS = 10;
     private static final int DECK_SIZE_SMALL = 20;
+    
+    // Network mode flag
+    private static boolean networkModeEnabled = false;
+    private static int networkPort = DEFAULT_NETWORK_PORT;
 
     private static volatile Game currentGame = null;
     private static volatile Thread currentGameThread = null;
@@ -87,9 +93,20 @@ public class ForgeHeadlessServer {
      * Main entry point.
      * 
      * @param args Command line arguments
+     *             --network to enable network mode
+     *             --network-port <port> to specify network port (default 9999)
      */
     public static void main(final String[] args) {
-        System.out.println("Starting ForgeHeadless Server on port " + PORT);
+        // Parse command line arguments
+        parseArgs(args);
+        
+        System.out.println("Starting ForgeHeadless Server");
+        System.out.println("HTTP API port: " + PORT);
+        if (networkModeEnabled) {
+            System.out.println("Network mode ENABLED on port: " + networkPort);
+        } else {
+            System.out.println("Network mode DISABLED (use --network to enable)");
+        }
 
         // Initialize Forge Resources
         // Initialize Forge Resources
@@ -99,7 +116,103 @@ public class ForgeHeadlessServer {
         GuiBase.setInterface(new ServerHeadlessGui());
         FModel.initialize(null, null);
 
+        // Start network server if enabled
+        if (networkModeEnabled) {
+            startNetworkServer();
+        }
+
         startHttpServer();
+    }
+    
+    /**
+     * Parse command line arguments.
+     */
+    private static void parseArgs(final String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--network":
+                    networkModeEnabled = true;
+                    break;
+                case "--network-port":
+                    if (i + 1 < args.length) {
+                        try {
+                            networkPort = Integer.parseInt(args[++i]);
+                        } catch (NumberFormatException e) {
+                            System.err.println("Invalid network port: " + args[i]);
+                            System.err.println("Using default port: " + DEFAULT_NETWORK_PORT);
+                            networkPort = DEFAULT_NETWORK_PORT;
+                        }
+                    }
+                    break;
+                case "--help":
+                    printHelp();
+                    System.exit(0);
+                    break;
+                default:
+                    System.err.println("Unknown argument: " + args[i]);
+                    printHelp();
+                    break;
+            }
+        }
+    }
+    
+    /**
+     * Print help message.
+     */
+    private static void printHelp() {
+        System.out.println("Forge Headless Server");
+        System.out.println("Usage: java -jar forge-headless-server.jar [options]");
+        System.out.println();
+        System.out.println("Options:");
+        System.out.println("  --network              Enable network mode for GUI clients");
+        System.out.println("  --network-port <port>  Specify network port (default: " + DEFAULT_NETWORK_PORT + ")");
+        System.out.println("  --help                 Show this help message");
+        System.out.println();
+        System.out.println("HTTP API is always available on port " + PORT);
+    }
+    
+    /**
+     * Start the network server for GUI client connections.
+     */
+    private static void startNetworkServer() {
+        try {
+            System.out.println("Starting network server on port " + networkPort + "...");
+            
+            // Create and configure headless server lobby
+            final HeadlessServerGameLobby lobby = new HeadlessServerGameLobby();
+            
+            // Get FServerManager instance and start server
+            final FServerManager serverManager = FServerManager.getInstance();
+            serverManager.startServer(networkPort);
+            serverManager.setLobby(lobby);
+            
+            // Set up lobby listener for network events
+            serverManager.setLobbyListener(new forge.interfaces.ILobbyListener() {
+                @Override
+                public void update(final forge.gamemodes.match.GameLobby.GameLobbyData state, final int slot) {
+                    // Lobby state updated
+                }
+                @Override
+                public void message(final String source, final String message) {
+                    System.out.println("[Chat] " + source + ": " + message);
+                }
+                @Override
+                public void close() {
+                    System.out.println("Network connection closed");
+                }
+                @Override
+                public forge.gamemodes.net.client.ClientGameLobby getLobby() {
+                    return null;
+                }
+            });
+            
+            System.out.println("Network server started successfully!");
+            System.out.println("Clients can connect to: " + FServerManager.getLocalAddress() + ":" + networkPort);
+            
+        } catch (Exception e) {
+            System.err.println("Failed to start network server: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     /**
