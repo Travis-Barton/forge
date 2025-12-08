@@ -1,12 +1,13 @@
 # ForgeHeadless Documentation
 
 ## Overview
-ForgeHeadless is a headless Magic: The Gathering game engine that supports two modes of operation:
+ForgeHeadless is a headless Magic: The Gathering game engine that supports three modes of operation:
 
 1. **HTTP Server Mode (v0)**: Java hosts an HTTP API and external processes poll for prompts and push actions.
 2. **AI Agent Mode (v1)**: Java calls out to YOUR external AI endpoint for every decision.
+3. **Network Mode (v2 - NEW!)**: Java accepts connections from the Forge desktop GUI for human vs AI gameplay and spectating.
 
-Use this document as the canonical reference for both architectures.
+Use this document as the canonical reference for all three architectures.
 
 ## Architecture
 
@@ -44,6 +45,27 @@ External automations poll `GET /input` and push `POST /action`/`POST /target`.
 
 In AI Agent mode, Java sends serialized game state + possible actions to your hosted AI endpoint, waits for the response, and executes it locally. **Your AI is in control.**
 
+### Network Mode (v2 - NEW!)
+
+```
+┌──────────────────┐   Netty Protocol   ┌────────────────────┐
+│  Forge Desktop   │ ◄────────────────► │ ForgeHeadlessServer│
+│  GUI (Human)     │    TCP/IP           │  (Network Server)  │
+└──────────────────┘                     └────────────────────┘
+                                              │
+                                              ▼
+                                         ┌─────────┐
+                                         │   AI    │
+                                         │ Opponent│
+                                         └─────────┘
+```
+
+In Network mode, the headless server acts as a multiplayer game server. Users can:
+- **Play against the AI**: Connect from the desktop GUI and play against the headless server's AI using the full visual interface
+- **Spectate games**: Watch AI vs AI games in real-time through the desktop GUI
+
+This mode uses the same network protocol as Forge's regular multiplayer, so all standard game features work correctly.
+
 ## Quick Start
 
 ### Building
@@ -63,6 +85,20 @@ Server starts on **port 8081**.
 ```
 
 When `--ai-endpoint` is provided, the game will call out to your AI service for all decisions instead of waiting for HTTP input.
+
+### Running in Network Mode (v2)
+```bash
+java -jar forge-gui-desktop.jar forge.view.ForgeHeadlessServer --network --network-port 9999
+```
+
+When `--network` is enabled, the server starts a multiplayer network server that GUI clients can connect to. The HTTP API remains available on port 8080 for monitoring game state.
+
+**To connect from the desktop GUI:**
+1. Launch the Forge desktop application
+2. Navigate to **Online Multiplayer** → **Lobby**
+3. Click **"Connect to Server"**
+4. Enter the server address (e.g., `localhost:9999` or `192.168.1.100:9999`)
+5. You'll be connected to slot 0 (human player) with an AI opponent automatically in slot 1
 66: 
 67: ### Running Manual Agent Interface (Testing)
 68: A manual agent interface is provided to test the AI Agent Mode. It intercepts requests from ForgeHeadless and allows you to manually select actions via a web interface.
@@ -364,10 +400,17 @@ Command queued
 ## Command Line Options
 
 ```bash
-./forge-headless [options]
+java -jar forge-gui-desktop.jar forge.view.ForgeHeadlessServer [options]
 ```
 
-### Player Options
+### Network Mode Options (NEW!)
+| Option | Description |
+|--------|-------------|
+| `--network` | Enable network mode for GUI client connections |
+| `--network-port <port>` | Network server port (default: 9999) |
+| `--help` | Show help message |
+
+### Player Options (HTTP/AI Agent modes)
 | Option | Description |
 |--------|-------------|
 | (default) | Player 1 = Human (HTTP-controlled or AI-agent-controlled), Player 2 = AI |
