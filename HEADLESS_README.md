@@ -88,7 +88,7 @@ When `--ai-endpoint` is provided, the game will call out to your AI service for 
 
 ### Running in Network Mode (v2)
 ```bash
-java -jar forge-gui-desktop.jar forge.view.ForgeHeadlessServer --network --network-port 9999
+java -cp forge-gui-desktop-2.0.08-SNAPSHOT-jar-with-dependencies.jar forge.view.ForgeHeadlessServer --network --network-port 9999
 ```
 
 When `--network` is enabled, the server starts a multiplayer network server that GUI clients can connect to. The HTTP API remains available on port 8080 for monitoring game state.
@@ -99,6 +99,32 @@ When `--network` is enabled, the server starts a multiplayer network server that
 3. Click **"Connect to Server"**
 4. Enter the server address (e.g., `localhost:9999` or `192.168.1.100:9999`)
 5. You'll be connected to slot 0 (human player) with an AI opponent automatically in slot 1
+6. Select your deck and mark yourself as ready
+7. The game will start automatically when both players are ready
+
+**Example Session:**
+```bash
+# Terminal 1: Start headless server with network mode
+$ cd forge-gui-desktop/target
+$ java -cp forge-gui-desktop-2.0.08-SNAPSHOT-jar-with-dependencies.jar \
+    forge.view.ForgeHeadlessServer --network --network-port 9999
+
+# Output:
+# Starting ForgeHeadless Server
+# HTTP API port: 8080
+# Network mode ENABLED on port: 9999
+# ...
+# Network server started successfully!
+# Clients can connect to: 192.168.1.100:9999
+
+# Then in Forge Desktop GUI:
+# 1. Go to Online Multiplayer > Lobby
+# 2. Click "Connect to Server"  
+# 3. Enter: localhost:9999 (or the IP shown in server output)
+# 4. Select your deck
+# 5. Click "Ready"
+# 6. Play Magic against the AI!
+```
 66: 
 67: ### Running Manual Agent Interface (Testing)
 68: A manual agent interface is provided to test the AI Agent Mode. It intercepts requests from ForgeHeadless and allows you to manually select actions via a web interface.
@@ -494,6 +520,13 @@ Enable with `--verbose` flag. Logs written to `headless_game.log`.
 
 ## Current Limitations
 
+### Network Mode
+1. **No spectator mode yet**: Users cannot currently spectate AI vs AI games (planned for future release)
+2. **AI opponent only**: The headless server automatically provides an AI opponent in slot 1
+3. **Two-player games only**: Currently limited to human (slot 0) vs AI (slot 1)
+4. **UPnP may fail**: In headless environments, automatic port forwarding may not work (use manual port forwarding if needed)
+
+### HTTP/AI Agent Modes
 1. **Combat is AI-controlled**: Declaring attackers/blockers uses AI logic
    - TODO: Add `POST /attackers` and `POST /blockers` endpoints
 2. **Fixed test decks**: Currently uses hardcoded test decks
