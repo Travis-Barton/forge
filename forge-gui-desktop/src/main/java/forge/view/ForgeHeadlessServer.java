@@ -68,6 +68,12 @@ public class ForgeHeadlessServer {
     // Network mode flag
     private static boolean networkModeEnabled = false;
     private static int networkPort = DEFAULT_NETWORK_PORT;
+    
+    // Server instances for shutdown cleanup
+    private static HttpServer httpServer = null;
+    
+    // Lock for synchronizing game state updates
+    private static final Object GAME_STATE_LOCK = new Object();
 
     private static volatile Game currentGame = null;
     private static volatile Thread currentGameThread = null;
@@ -122,6 +128,23 @@ public class ForgeHeadlessServer {
         }
 
         startHttpServer();
+        
+        // Add shutdown hook for graceful cleanup
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Shutting down servers...");
+            if (httpServer != null) {
+                httpServer.stop(0);
+                System.out.println("HTTP server stopped");
+            }
+            if (networkModeEnabled) {
+                try {
+                    FServerManager.getInstance().stopServer();
+                    System.out.println("Network server stopped");
+                } catch (Exception e) {
+                    System.err.println("Error stopping network server: " + e.getMessage());
+                }
+            }
+        }));
     }
     
     /**
@@ -220,10 +243,10 @@ public class ForgeHeadlessServer {
      */
     private static void startHttpServer() {
         try {
-            final HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
+            httpServer = HttpServer.create(new InetSocketAddress(PORT), 0);
 
             // POST /api/reset
-            server.createContext("/api/reset", exchange -> {
+            httpServer.createContext("/api/reset", exchange -> {
                 if (!"POST".equals(exchange.getRequestMethod())) {
                     sendResponse(exchange, HTTP_METHOD_NOT_ALLOWED, "Method Not Allowed");
                     return;
@@ -256,7 +279,7 @@ public class ForgeHeadlessServer {
             });
 
             // POST /api/step
-            server.createContext("/api/step", exchange -> {
+            httpServer.createContext("/api/step", exchange -> {
                 if (!"POST".equals(exchange.getRequestMethod())) {
                     sendResponse(exchange, HTTP_METHOD_NOT_ALLOWED, "Method Not Allowed");
                     return;
@@ -291,7 +314,7 @@ public class ForgeHeadlessServer {
             });
 
             // GET /api/state
-            server.createContext("/api/state", exchange -> {
+            httpServer.createContext("/api/state", exchange -> {
                 if (!"GET".equals(exchange.getRequestMethod())) {
                     sendResponse(exchange, HTTP_METHOD_NOT_ALLOWED, "Method Not Allowed");
                     return;
@@ -300,7 +323,7 @@ public class ForgeHeadlessServer {
             });
 
             // GET /api/log - Retrieve game log
-            server.createContext("/api/log", exchange -> {
+            httpServer.createContext("/api/log", exchange -> {
                 if (!"GET".equals(exchange.getRequestMethod())) {
                     sendResponse(exchange, HTTP_METHOD_NOT_ALLOWED, "Method Not Allowed");
                     return;
@@ -309,7 +332,7 @@ public class ForgeHeadlessServer {
             });
 
             // GET /api/export_puzzle - Export current game state as a .pzl puzzle file
-            server.createContext("/api/export_puzzle", exchange -> {
+            httpServer.createContext("/api/export_puzzle", exchange -> {
                 if (!"GET".equals(exchange.getRequestMethod())) {
                     sendResponse(exchange, HTTP_METHOD_NOT_ALLOWED, "Method Not Allowed");
                     return;
@@ -335,8 +358,8 @@ public class ForgeHeadlessServer {
                 }
             });
 
-            server.setExecutor(null);
-            server.start();
+            httpServer.setExecutor(null);
+            httpServer.start();
             System.out.println("HTTP Server started. Waiting for requests...");
 
         } catch (final IOException e) {
@@ -412,8 +435,12 @@ public class ForgeHeadlessServer {
         // State section
         sb.append("[state]\n");
         sb.append("turn=").append(game.getPhaseHandler().getTurn()).append("\n");
-        sb.append("activeplayer=p").append(game.getPlayers().indexOf(game.getPhaseHandler().getPlayerTurn()))
-                .append("\n");
+        int activePlayerIndex = game.getPlayers().indexOf(game.getPhaseHandler().getPlayerTurn());
+        if (activePlayerIndex < 0) {
+            activePlayerIndex = 0; // Default to first player if not found
+            System.err.println("Warning: Active player not found in players list, defaulting to player 0");
+        }
+        sb.append("activeplayer=p").append(activePlayerIndex).append("\n");
         sb.append("activephase=").append(game.getPhaseHandler().getPhase().toString()).append("\n");
 
         // Player states
@@ -493,12 +520,24 @@ public class ForgeHeadlessServer {
 
             try {
                 // Wait for the old game thread to finish (with timeout)
+                // Note: Thread interruption may not work if the game thread is:
+                // - Blocked on IO operations
+                // - Waiting for a lock
+                // - In a tight loop that doesn't check interrupted status
+                // The shouldStopGame flag should be checked by game loops for cooperative shutdown
                 if (currentGameThread != null && currentGameThread.isAlive()) {
                     System.out.println("Waiting for old game thread to finish...");
-                    currentGameThread.join(2000); // Wait up to 2 seconds
+                    currentGameThread.join(5000); // Wait up to 5 seconds (increased from 2)
                     if (currentGameThread.isAlive()) {
-                        System.err.println("Old game thread didn't finish, interrupting...");
+                        System.err.println("Old game thread didn't finish within timeout, interrupting...");
                         currentGameThread.interrupt();
+                        
+                        // Give it one more second after interrupt
+                        currentGameThread.join(1000);
+                        if (currentGameThread.isAlive()) {
+                            System.err.println("WARNING: Old game thread is still alive after interrupt. " +
+                                "This may lead to resource leaks or unexpected behavior.");
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -509,12 +548,15 @@ public class ForgeHeadlessServer {
 
         // Clear everything - INCLUDING LAST_GAME_STATE to avoid returning stale
         // observations
-        currentGame = null;
-        currentGameThread = null;
-        ACTION_QUEUE.clear();
-        LAST_GAME_STATE.set(new JsonObject()); // CRITICAL: Clear old game state!
-        waitingForInput = false;
-        shouldStopGame = false;
+        // Use synchronized block to ensure atomic updates of game state
+        synchronized (GAME_STATE_LOCK) {
+            currentGame = null;
+            currentGameThread = null;
+            ACTION_QUEUE.clear();
+            LAST_GAME_STATE.set(new JsonObject()); // CRITICAL: Clear old game state!
+            waitingForInput = false;
+            shouldStopGame = false;
+        }
 
         // Save and clear game log
         if (GAME_LOG.length() > 0) {
@@ -833,25 +875,16 @@ public class ForgeHeadlessServer {
         // --- Hybrid Agent Interception Points ---
 
         public List<SpellAbility> chooseSpellAbilityToPlay() {
-            // 1. Update Game State
-            updateGameState(getGame());
-
-            // 2. Ask Python for action
-            // We expect "play_action <index>" or "pass_priority"
-            final String action = askPython();
-
-            if (action.startsWith("play_action")) {
-                final int index = Integer.parseInt(action.split(" ")[1]);
-                final JsonObject actions = getPossibleActions(player, getGame());
-                final JsonArray list = actions.getAsJsonArray("actions");
-                if (index >= 0 && index < list.size()) {
-                    // In a real impl, we'd map this back to the actual SpellAbility object
-                    // For now, let's just return null (pass priority) if it's the pass action
-                    // This part needs the same logic as ForgeHeadless to map index -> SpellAbility
-                    return null; // Placeholder
-                }
-            }
-            return null; // Default to pass
+            // TODO: This method is not yet fully implemented for the server player controller.
+            // It would require mapping action indices back to SpellAbility objects,
+            // similar to the ForgeHeadless implementation.
+            // For now, this method throws UnsupportedOperationException to indicate
+            // that spell/ability selection through this pathway is not yet supported.
+            // 
+            // The agent currently uses other interaction pathways for game actions.
+            throw new UnsupportedOperationException(
+                "chooseSpellAbilityToPlay is not yet implemented for ServerPlayerController. " +
+                "This requires mapping action indices to SpellAbility objects.");
         }
 
         @Override
@@ -925,6 +958,10 @@ public class ForgeHeadlessServer {
                         for (final Card creature : potentialAttackers) {
                             if (creature.getId() == creatureId) {
                                 // Declare this creature as an attacker
+                                if (combat.getDefenders().isEmpty()) {
+                                    System.err.println("No defenders available for combat");
+                                    break;
+                                }
                                 final GameEntity defender = combat.getDefenders().iterator().next();
                                 combat.addAttacker(creature, defender);
                                 System.out.println("Declared " + creature + " as attacker");
@@ -1013,6 +1050,11 @@ public class ForgeHeadlessServer {
                         }
 
                         // Find and declare the blocker
+                        if (!selectedOption.has("blocker_id") || !selectedOption.has("attacker_id")) {
+                            System.err.println("Invalid blocker option: missing blocker_id or attacker_id fields");
+                            continue;
+                        }
+                        
                         final int blockerId = selectedOption.get("blocker_id").getAsInt();
                         final int attackerId = selectedOption.get("attacker_id").getAsInt();
 

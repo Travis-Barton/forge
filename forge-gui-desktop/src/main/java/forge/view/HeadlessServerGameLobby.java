@@ -20,8 +20,16 @@ public class HeadlessServerGameLobby extends ServerGameLobby {
         // We want: Slot 0 = OPEN (for remote human), Slot 1 = AI
         
         // Clear all slots and recreate with our configuration
-        while (getNumberOfSlots() > 0) {
+        // Add safety limit to prevent infinite loop if removeSlot fails silently
+        int maxAttempts = 10;
+        int attempts = 0;
+        while (getNumberOfSlots() > 0 && attempts < maxAttempts) {
             removeSlot(0);
+            attempts++;
+            if (attempts >= maxAttempts) {
+                System.err.println("WARNING: Failed to remove all slots after " + maxAttempts + " attempts");
+                break;
+            }
         }
         
         // Slot 0: OPEN for remote human player
