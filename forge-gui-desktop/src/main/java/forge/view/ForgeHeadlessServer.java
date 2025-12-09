@@ -252,9 +252,12 @@ public class ForgeHeadlessServer {
         JsonObject info = new JsonObject();
         info.addProperty("id", creature.getId());
         info.addProperty("name", creature.getName());
+        info.addProperty("owner", creature.getOwner().getName());
+        info.addProperty("controller", creature.getController().getName());
         info.addProperty("tapped", creature.isTapped());
         info.addProperty("power", creature.getNetPower());
         info.addProperty("toughness", creature.getNetToughness());
+        info.addProperty("damage_marked", creature.getDamage());
         info.addProperty("summoning_sick", creature.hasSickness());
 
         // Add creature types (Human, Elf, etc.)
@@ -328,6 +331,8 @@ public class ForgeHeadlessServer {
         JsonObject info = new JsonObject();
         info.addProperty("id", permanent.getId());
         info.addProperty("name", permanent.getName());
+        info.addProperty("owner", permanent.getOwner().getName());
+        info.addProperty("controller", permanent.getController().getName());
         info.addProperty("tapped", permanent.isTapped());
 
         // Type line
@@ -384,6 +389,21 @@ public class ForgeHeadlessServer {
         }
         if (abilities.size() > 0) {
             info.add("activated_abilities", abilities);
+        }
+
+        // Imprinted cards (for Isochron Scepter, etc.) - linked exile
+        if (permanent.hasImprintedCard()) {
+            JsonArray imprinted = new JsonArray();
+            for (final Card imprintedCard : permanent.getImprintedCards()) {
+                JsonObject impCard = new JsonObject();
+                impCard.addProperty("id", imprintedCard.getId());
+                impCard.addProperty("name", imprintedCard.getName());
+                if (imprintedCard.getType() != null) {
+                    impCard.addProperty("type_line", imprintedCard.getType().toString());
+                }
+                imprinted.add(impCard);
+            }
+            info.add("imprinted_cards", imprinted);
         }
 
         return info;
@@ -1387,10 +1407,19 @@ public class ForgeHeadlessServer {
                         player1Stats.addProperty("library_size", agent.getCardsIn(ZoneType.Library).size());
                         player1Stats.addProperty("poison_counters", agent.getPoisonCounters());
 
-                        // Graveyard contents (public info)
+                        // Graveyard contents with full card details (public info)
                         final JsonArray player1Graveyard = new JsonArray();
                         for (final Card c : agent.getCardsIn(ZoneType.Graveyard)) {
-                            player1Graveyard.add(c.getName());
+                            JsonObject gyCard = new JsonObject();
+                            gyCard.addProperty("id", c.getId());
+                            gyCard.addProperty("name", c.getName());
+                            if (c.getType() != null) {
+                                gyCard.addProperty("type_line", c.getType().toString());
+                            }
+                            if (c.getManaCost() != null) {
+                                gyCard.addProperty("mana_cost", c.getManaCost().toString());
+                            }
+                            player1Graveyard.add(gyCard);
                         }
                         player1Stats.add("graveyard", player1Graveyard);
                         state.add("player1", player1Stats);
@@ -1403,10 +1432,19 @@ public class ForgeHeadlessServer {
                             player2Stats.addProperty("library_size", opponent.getCardsIn(ZoneType.Library).size());
                             player2Stats.addProperty("poison_counters", opponent.getPoisonCounters());
 
-                            // Opponent graveyard contents (public info)
+                            // Opponent graveyard contents with full details (public info)
                             final JsonArray player2Graveyard = new JsonArray();
                             for (final Card c : opponent.getCardsIn(ZoneType.Graveyard)) {
-                                player2Graveyard.add(c.getName());
+                                JsonObject gyCard = new JsonObject();
+                                gyCard.addProperty("id", c.getId());
+                                gyCard.addProperty("name", c.getName());
+                                if (c.getType() != null) {
+                                    gyCard.addProperty("type_line", c.getType().toString());
+                                }
+                                if (c.getManaCost() != null) {
+                                    gyCard.addProperty("mana_cost", c.getManaCost().toString());
+                                }
+                                player2Graveyard.add(gyCard);
                             }
                             player2Stats.add("graveyard", player2Graveyard);
                             state.add("player2", player2Stats);
