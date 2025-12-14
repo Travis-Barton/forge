@@ -1271,6 +1271,7 @@ public class ForgeHeadlessServer {
                         // Add hand with full card details
                         final JsonArray hand = new JsonArray();
                         for (final Card c : agent.getCardsIn(ZoneType.Hand)) {
+                            hand.add(c.getName());
                             JsonObject cardInfo = new JsonObject();
                             cardInfo.addProperty("id", c.getId());
                             cardInfo.addProperty("name", c.getName());
