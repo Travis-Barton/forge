@@ -73,7 +73,7 @@ public class PlayerPanel extends FPanel {
     private int avatarIndex, sleeveIndex;
 
     private final FTextField txtPlayerName = new FTextField.Builder().build();
-    private final FTextField txtAiEndpoint = new FTextField.Builder().ghostText("http://localhost:8080").build();
+    private final FTextField txtAiEndpoint = new FTextField.Builder().ghostText("http://localhost:5005").build();
     private final FLabel lblAiEndpoint;
     private FRadioButton radioHuman;
     private FRadioButton radioAi;
@@ -842,7 +842,7 @@ public class PlayerPanel extends FPanel {
         String endpoint = txtAiEndpoint.getText();
         // Return default if empty
         if (endpoint == null || endpoint.trim().isEmpty()) {
-            return "http://localhost:8080";
+            return "http://localhost:5005";
         }
         // Add http:// prefix if missing
         endpoint = endpoint.trim();

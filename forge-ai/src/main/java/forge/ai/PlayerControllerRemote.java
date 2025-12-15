@@ -63,8 +63,12 @@ public class PlayerControllerRemote extends PlayerControllerAi {
         List<SpellAbility> spellAbilities = ComputerUtilAbility.getSpellAbilities(availableCards, player);
 
         for (SpellAbility sa : spellAbilities) {
-            // Filter to only abilities the player can actually activate
-            if (sa.canPlay() && sa.getActivatingPlayer() == player) {
+            // Skip mana abilities - the game engine handles mana payment automatically
+            if (sa.isManaAbility()) {
+                continue;
+            }
+            // Filter to only abilities the player can actually activate AND afford
+            if (sa.canPlay() && sa.getActivatingPlayer() == player && ComputerUtilMana.canPayManaCost(sa, player, 0, false)) {
                 allAbilities.add(sa);
             }
         }
@@ -88,15 +92,24 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                     action.addProperty("index", i);
                     Card source = sa.getHostCard();
 
+                    // Get card zone for all action types
+                    String cardZone = "";
+                    if (source != null && source.getZone() != null) {
+                        cardZone = source.getZone().getZoneType().toString();
+                    }
+
                     // Determine action type
-                    if (source != null && source.isLand() && sa.isSpell()) {
+                    if (source != null && source.isLand() && source.isInZone(ZoneType.Hand)) {
+                        // Playing a land from hand
                         action.addProperty("type", "play_land");
                         action.addProperty("card_id", source.getId());
                         action.addProperty("card_name", source.getName());
+                        action.addProperty("card_zone", cardZone);
                     } else if (sa.isSpell()) {
                         action.addProperty("type", "cast_spell");
                         action.addProperty("card_id", source != null ? source.getId() : -1);
                         action.addProperty("card_name", source != null ? source.getName() : "Unknown");
+                        action.addProperty("card_zone", cardZone);
                         action.addProperty("ability_description", sa.getDescription());
                         action.addProperty("mana_cost",
                                 sa.getPayCosts() != null ? sa.getPayCosts().toSimpleString() : "");
@@ -118,6 +131,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                         action.addProperty("type", "activate_ability");
                         action.addProperty("card_id", source != null ? source.getId() : -1);
                         action.addProperty("card_name", source != null ? source.getName() : "Unknown");
+                        action.addProperty("card_zone", cardZone);
                         action.addProperty("ability_description", sa.getDescription());
                         action.addProperty("mana_cost",
                                 sa.getPayCosts() != null ? sa.getPayCosts().toSimpleString() : "no cost");
@@ -150,7 +164,13 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 System.out.println("Calling AI agent for possible_actions...");
                 AIAgentResponse response = aiAgentClient.requestDecision(request);
 
-                if ("possible_actions".equals(response.getDecisionType())) {
+                // Handle pass decision first
+                if (response.isPass()) {
+                    System.out.println("AI chose to pass priority.");
+                    return null; // Null means pass priority
+                }
+
+                if ("possible_actions".equals(response.getDecisionType()) || "action".equals(response.getDecisionType())) {
                     int chosenIndex = response.getIndex();
                     if (chosenIndex >= 0 && chosenIndex < actions.size()) {
                         SpellAbility chosen = actions.get(chosenIndex);
@@ -159,7 +179,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                         result.add(chosen);
                         return result;
                     } else if (chosenIndex == actions.size()) {
-                        System.out.println("AI chose to pass priority.");
+                        System.out.println("AI chose to pass priority (via index).");
                         return null; // Null means pass priority
                     }
                 }
