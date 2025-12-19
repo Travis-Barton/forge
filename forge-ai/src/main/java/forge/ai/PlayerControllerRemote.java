@@ -93,7 +93,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                     Card source = sa.getHostCard();
 
                     // Get card zone for all action types
-                    String cardZone = "";
+                    String cardZone = "Unknown";
                     if (source != null && source.getZone() != null) {
                         cardZone = source.getZone().getZoneType().toString();
                     }

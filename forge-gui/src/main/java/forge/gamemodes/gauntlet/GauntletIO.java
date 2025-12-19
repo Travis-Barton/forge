@@ -13,7 +13,7 @@ import com.thoughtworks.xstream.security.PrimitiveTypePermission;
 import forge.deck.CardPool;
 import forge.deck.Deck;
 import forge.deck.DeckSection;
-import forge.gui.error.BugReporter;
+// import forge.gui.error.BugReporter;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
@@ -108,7 +108,9 @@ public class GauntletIO {
         } catch (final IOException e) {
             e.printStackTrace();
         } catch (final ConversionException e) {
-            BugReporter.reportException(e);
+            System.err.println("Corrupt gauntlet file found (ConversionException): " + xmlSaveFile.getName());
+            // BugReporter.reportException(e); // Suppress GUI dialog in headless/watch mode
+            isCorrupt = true;
         } catch (final Exception e) { //if there's a non-IO exception, delete the corrupt file
             e.printStackTrace();
             isCorrupt = true;
