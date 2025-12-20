@@ -175,6 +175,17 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                     if (chosenIndex >= 0 && chosenIndex < actions.size()) {
                         SpellAbility chosen = actions.get(chosenIndex);
                         System.out.println("AI chose action: " + chosen.toString());
+                        
+                        // If the spell requires targeting, we need to set up targets BEFORE returning
+                        if (chosen.usesTargeting()) {
+                            System.out.println("Spell requires targeting, setting up targets...");
+                            boolean targetingSuccess = setupTargetsForSpell(chosen, gameState);
+                            if (!targetingSuccess) {
+                                System.out.println("Failed to set up targets, passing priority");
+                                return null;
+                            }
+                        }
+                        
                         List<SpellAbility> result = new ArrayList<>();
                         result.add(chosen);
                         return result;
@@ -384,6 +395,120 @@ public class PlayerControllerRemote extends PlayerControllerAi {
         }
         result.add("targets", options);
         return result;
+    }
+
+    @Override
+    public boolean chooseTargetsFor(SpellAbility currentAbility) {
+        if (aiAgentClient != null && currentAbility.usesTargeting()) {
+            try {
+                TargetRestrictions tgt = currentAbility.getTargetRestrictions();
+                if (tgt == null) {
+                    System.out.println("No target restrictions found, falling back to default AI");
+                    return super.chooseTargetsFor(currentAbility);
+                }
+
+                // Get all valid target candidates
+                List<GameEntity> candidates = tgt.getAllCandidates(currentAbility, true);
+                if (candidates.isEmpty()) {
+                    System.out.println("No valid targets available");
+                    return false;
+                }
+
+                int min = tgt.getMinTargets(currentAbility.getHostCard(), currentAbility);
+                int max = tgt.getMaxTargets(currentAbility.getHostCard(), currentAbility);
+                String title = "Select targets for " + (currentAbility.getHostCard() != null ? 
+                        currentAbility.getHostCard().getName() : "ability");
+
+                // Create action state with target options
+                JsonObject actionState = new JsonObject();
+                actionState.addProperty("min", min);
+                actionState.addProperty("max", max);
+                actionState.addProperty("title", title);
+
+                JsonArray options = new JsonArray();
+                for (int i = 0; i < candidates.size(); i++) {
+                    GameEntity target = candidates.get(i);
+                    JsonObject option = new JsonObject();
+                    option.addProperty("index", i);
+                    option.addProperty("name", target.getName());
+                    option.addProperty("id", target.getId());
+                    
+                    if (target instanceof Player) {
+                        option.addProperty("type", "Player");
+                        option.addProperty("life", ((Player) target).getLife());
+                    } else if (target instanceof Card) {
+                        Card c = (Card) target;
+                        option.addProperty("type", c.isCreature() ? "Creature" : 
+                                c.isLand() ? "Land" : 
+                                c.isArtifact() ? "Artifact" :
+                                c.isEnchantment() ? "Enchantment" : "Card");
+                        if (c.isCreature()) {
+                            option.addProperty("power", c.getNetPower());
+                            option.addProperty("toughness", c.getNetToughness());
+                        }
+                        option.addProperty("controller", c.getController().getName());
+                    } else {
+                        option.addProperty("type", target.getClass().getSimpleName());
+                    }
+                    options.add(option);
+                }
+                actionState.add("targets", options);
+
+                JsonObject gameState = extractGameState(getGame());
+                JsonObject context = new JsonObject();
+                context.addProperty("requestType", "target");
+                context.addProperty("spellName", currentAbility.getHostCard() != null ? 
+                        currentAbility.getHostCard().getName() : "Unknown");
+                context.addProperty("spellDescription", currentAbility.getDescription());
+
+                AIAgentRequest request = new AIAgentRequest(
+                        gameId, "target", gameState, actionState, context);
+
+                System.out.println("Calling AI agent for spell target selection...");
+                System.out.println("Available targets (" + candidates.size() + "):");
+                for (int i = 0; i < candidates.size(); i++) {
+                    System.out.println("  [" + i + "] " + candidates.get(i).getName());
+                }
+
+                AIAgentResponse response = aiAgentClient.requestDecision(request);
+
+                // Handle multi-target or single-target response
+                List<Integer> selectedIndices = new ArrayList<>();
+                if (response.getIndices() != null) {
+                    for (int idx : response.getIndices()) {
+                        selectedIndices.add(idx);
+                    }
+                } else if (response.getIndex() >= 0) {
+                    selectedIndices.add(response.getIndex());
+                }
+
+                // Add selected targets to the ability
+                int targetsAdded = 0;
+                for (int idx : selectedIndices) {
+                    if (idx >= 0 && idx < candidates.size() && targetsAdded < max) {
+                        GameEntity target = candidates.get(idx);
+                        currentAbility.getTargets().add(target);
+                        System.out.println("AI selected target: " + target.getName());
+                        targetsAdded++;
+                    }
+                }
+
+                // Check if we have enough targets
+                if (targetsAdded >= min) {
+                    System.out.println("Target selection complete (" + targetsAdded + " targets)");
+                    return true;
+                } else {
+                    System.out.println("Not enough targets selected (" + targetsAdded + "/" + min + ")");
+                    return false;
+                }
+
+            } catch (Exception e) {
+                System.err.println("AI agent error in chooseTargetsFor: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+        // Fallback to default AI
+        return super.chooseTargetsFor(currentAbility);
     }
 
     @Override
@@ -611,5 +736,168 @@ public class PlayerControllerRemote extends PlayerControllerAi {
             zoneArray.add(cardObj);
         }
         return zoneArray;
+    }
+
+    /**
+     * Sets up targets for a spell before it's added to the stack.
+     * This is called from chooseSpellAbilityToPlay when the chosen spell requires targeting.
+     * Handles the main ability AND any sub-abilities that also require targeting.
+     * Returns true if targeting was successful for all abilities, false otherwise.
+     */
+    private boolean setupTargetsForSpell(SpellAbility sa, JsonObject gameState) {
+        // First, handle targeting for the main ability
+        if (sa.usesTargeting()) {
+            boolean success = setupTargetsForSingleAbility(sa, gameState, "main");
+            if (!success) {
+                return false;
+            }
+        }
+
+        // Then, handle targeting for any sub-abilities in the chain
+        SpellAbility subAb = sa.getSubAbility();
+        int subIndex = 1;
+        while (subAb != null) {
+            if (subAb.usesTargeting()) {
+                boolean success = setupTargetsForSingleAbility(subAb, gameState, "sub-" + subIndex);
+                if (!success) {
+                    return false;
+                }
+            }
+            subAb = subAb.getSubAbility();
+            subIndex++;
+        }
+
+        return true;
+    }
+
+    /**
+     * Sets up targets for a single ability (main or sub).
+     * Returns true if targeting was successful, false otherwise.
+     */
+    private boolean setupTargetsForSingleAbility(SpellAbility sa, JsonObject gameState, String abilityLabel) {
+        TargetRestrictions tgt = sa.getTargetRestrictions();
+        if (tgt == null) {
+            System.out.println("No target restrictions for " + abilityLabel + ", falling back to default AI targeting");
+            return super.chooseTargetsFor(sa);
+        }
+
+        // Get all valid target candidates
+        List<GameEntity> candidates = tgt.getAllCandidates(sa, true);
+        if (candidates.isEmpty()) {
+            System.out.println("No valid targets available for " + abilityLabel + " ability of " + 
+                    (sa.getHostCard() != null ? sa.getHostCard().getName() : "Unknown"));
+            return false;
+        }
+
+        int min = tgt.getMinTargets(sa.getHostCard(), sa);
+        int max = tgt.getMaxTargets(sa.getHostCard(), sa);
+        String spellName = sa.getHostCard() != null ? sa.getHostCard().getName() : "ability";
+        String title = "Select targets for " + spellName + " (" + abilityLabel + ")";
+
+        // Include the ability description to help the agent understand what this target is for
+        String abilityDesc = sa.getDescription();
+
+        System.out.println("Setting up targets for: " + title);
+        System.out.println("  Ability: " + abilityDesc);
+        System.out.println("  Min targets: " + min + ", Max targets: " + max);
+        System.out.println("  Available candidates (" + candidates.size() + "):");
+        for (int i = 0; i < candidates.size(); i++) {
+            GameEntity target = candidates.get(i);
+            String targetInfo = "    [" + i + "] " + target.getName();
+            if (target instanceof Card) {
+                Card c = (Card) target;
+                if (c.isCreature()) {
+                    targetInfo += " (" + c.getNetPower() + "/" + c.getNetToughness() + ")";
+                }
+                targetInfo += " - " + c.getController().getName();
+            }
+            System.out.println(targetInfo);
+        }
+
+        try {
+            // Create action state with target options
+            JsonObject actionState = new JsonObject();
+            actionState.addProperty("min", min);
+            actionState.addProperty("max", max);
+            actionState.addProperty("title", title);
+            actionState.addProperty("ability_description", abilityDesc);
+            actionState.addProperty("ability_label", abilityLabel);
+
+            JsonArray options = new JsonArray();
+            for (int i = 0; i < candidates.size(); i++) {
+                GameEntity target = candidates.get(i);
+                JsonObject option = new JsonObject();
+                option.addProperty("index", i);
+                option.addProperty("name", target.getName());
+                option.addProperty("id", target.getId());
+
+                if (target instanceof Player) {
+                    option.addProperty("type", "Player");
+                    option.addProperty("life", ((Player) target).getLife());
+                } else if (target instanceof Card) {
+                    Card c = (Card) target;
+                    option.addProperty("type", c.isCreature() ? "Creature" :
+                            c.isLand() ? "Land" :
+                            c.isArtifact() ? "Artifact" :
+                            c.isEnchantment() ? "Enchantment" : "Card");
+                    if (c.isCreature()) {
+                        option.addProperty("power", c.getNetPower());
+                        option.addProperty("toughness", c.getNetToughness());
+                    }
+                    option.addProperty("controller", c.getController().getName());
+                } else {
+                    option.addProperty("type", target.getClass().getSimpleName());
+                }
+                options.add(option);
+            }
+            actionState.add("targets", options);
+
+            JsonObject context = new JsonObject();
+            context.addProperty("requestType", "target");
+            context.addProperty("spellName", spellName);
+            context.addProperty("spellDescription", abilityDesc);
+            context.addProperty("abilityLabel", abilityLabel);
+
+            AIAgentRequest request = new AIAgentRequest(
+                    gameId, "target", gameState, actionState, context);
+
+            System.out.println("Calling AI agent for target selection (" + abilityLabel + ")...");
+            AIAgentResponse response = aiAgentClient.requestDecision(request);
+
+            // Handle multi-target or single-target response
+            List<Integer> selectedIndices = new ArrayList<>();
+            if (response.getIndices() != null) {
+                for (int idx : response.getIndices()) {
+                    selectedIndices.add(idx);
+                }
+            } else if (response.getIndex() >= 0) {
+                selectedIndices.add(response.getIndex());
+            }
+
+            // Add selected targets to the ability
+            int targetsAdded = 0;
+            for (int idx : selectedIndices) {
+                if (idx >= 0 && idx < candidates.size() && targetsAdded < max) {
+                    GameEntity target = candidates.get(idx);
+                    sa.getTargets().add(target);
+                    System.out.println("AI selected target (" + abilityLabel + "): " + target.getName());
+                    targetsAdded++;
+                }
+            }
+
+            // Check if we have enough targets
+            if (targetsAdded >= min) {
+                System.out.println("Target selection complete for " + abilityLabel + " (" + targetsAdded + " targets)");
+                return true;
+            } else {
+                System.out.println("Not enough targets selected for " + abilityLabel + " (" + targetsAdded + "/" + min + ")");
+                return false;
+            }
+
+        } catch (Exception e) {
+            System.err.println("AI agent error in setupTargetsForSingleAbility (" + abilityLabel + "): " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
     }
 }

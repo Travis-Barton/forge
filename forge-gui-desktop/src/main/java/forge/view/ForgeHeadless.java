@@ -91,7 +91,7 @@ public class ForgeHeadless {
     private static volatile String gameId = null;
     private static volatile AIAgentClient aiAgentClient = null;
     private static volatile boolean condensedLogging = false;
-    private static volatile boolean useMyrDeck = false;
+    private static volatile String customDeckName = null;
     private static final java.util.Set<String> knownCardNames = new java.util.HashSet<>();
 
     public static void main(String[] args) {
@@ -121,8 +121,12 @@ public class ForgeHeadless {
                 useGui = true;
             } else if (arg.equals("--condensed-log")) {
                 condensedLogging = true;
-            } else if (arg.equals("--use-myr")) {
-                useMyrDeck = true;
+            } else if ((arg.equals("--use-deck") || arg.equals("--deck")) && i + 1 < args.length) {
+                customDeckName = args[++i];
+            } else if (arg.startsWith("--use-deck=")) {
+                customDeckName = arg.substring("--use-deck=".length());
+            } else if (arg.startsWith("--deck=")) {
+                customDeckName = arg.substring("--deck=".length());
             } else if (arg.equals("--help")) {
                 printUsage();
                 System.exit(0);
@@ -161,11 +165,13 @@ public class ForgeHeadless {
 
         // Generate Decks
         Deck deck1 = null;
-        if (useMyrDeck) {
-            System.out.println("Forcing use of 'Myr of Mirrodin' deck for Player 1");
-            deck1 = loadPreconstructedDeck("Myr of Mirrodin");
+        
+        // Check for custom deck name
+        if (customDeckName != null && !customDeckName.isEmpty()) {
+            System.out.println("Loading custom deck: " + customDeckName);
+            deck1 = loadPreconstructedDeck(customDeckName);
             if (deck1 == null) {
-                System.err.println("WARNING: Could not load 'Myr of Mirrodin' deck. Falling back to random.");
+                System.err.println("WARNING: Could not load deck '" + customDeckName + "'. Falling back to random.");
             }
         }
         
@@ -386,15 +392,45 @@ public class ForgeHeadless {
     private static Deck loadPreconstructedDeck(String deckName) {
         if (deckName == null) return null;
         
-        File dir = new File(ForgeConstants.QUEST_PRECON_DIR);
+        // First, check the test-decks directory (for development/testing)
+        File testDir = new File("test-decks");
+        Deck testDeck = loadDeckFromDirectory(testDir, deckName);
+        if (testDeck != null) {
+            System.out.println("Loaded test deck from: " + testDir.getAbsolutePath());
+            return testDeck;
+        }
+        
+        // Then check the quest precons directory
+        File preconDir = new File(ForgeConstants.QUEST_PRECON_DIR);
+        Deck preconDeck = loadDeckFromDirectory(preconDir, deckName);
+        if (preconDeck != null) {
+            return preconDeck;
+        }
+        
+        System.err.println("Could not find deck '" + deckName + "' in test-decks/ or quest precons");
+        return null;
+    }
+    
+    private static Deck loadDeckFromDirectory(File dir, String deckName) {
         if (!dir.exists() || !dir.isDirectory()) return null;
         
-        // Simple search in top level
+        // Try exact match first (with and without .dck extension)
         File[] files = dir.listFiles((d, name) -> name.endsWith(".dck"));
         if (files != null) {
             for (File f : files) {
-                if (f.getName().equalsIgnoreCase(deckName) || f.getName().equalsIgnoreCase(deckName + ".dck")) {
-                    return DeckSerializer.fromSections(FileSection.parseSections(FileUtil.readFile(f)));
+                String nameWithoutExt = f.getName().replace(".dck", "");
+                if (nameWithoutExt.equalsIgnoreCase(deckName) || 
+                    f.getName().equalsIgnoreCase(deckName) ||
+                    f.getName().equalsIgnoreCase(deckName + ".dck")) {
+                    try {
+                        Deck deck = DeckSerializer.fromSections(FileSection.parseSections(FileUtil.readFile(f)));
+                        if (deck != null) {
+                            deck.setName(nameWithoutExt);
+                            return deck;
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Error loading deck " + f.getName() + ": " + e.getMessage());
+                    }
                 }
             }
         }
@@ -489,7 +525,7 @@ public class ForgeHeadless {
         System.out.println("\nOther Options:");
         System.out.println("  --verbose       Enable verbose logging of game events");
         System.out.println("  --condensed-log Enable condensed logging (actions, state, decisions)");
-        System.out.println("  --use-myr       Force Player 1 to use 'Myr of Mirrodin' deck");
+        System.out.println("  --deck <name>   Load a specific deck from test-decks/ or precons");
         System.out.println("  --help          Show this help message");
         System.out.println("\nHTTP Server running on port " + PORT);
         System.out.println("\nAI Agent Mode:");
