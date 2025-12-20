@@ -102,3 +102,4 @@ apache-maven-*
 
 # Game log files
 game_log*.txt
+*.pid
