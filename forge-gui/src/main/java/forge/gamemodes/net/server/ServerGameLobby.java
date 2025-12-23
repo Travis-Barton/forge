@@ -8,7 +8,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
 
-public final class ServerGameLobby extends GameLobby {
+public class ServerGameLobby extends GameLobby {
 
     public ServerGameLobby() {
         super(true);
