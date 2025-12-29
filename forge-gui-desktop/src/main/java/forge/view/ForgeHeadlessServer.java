@@ -370,9 +370,11 @@ public class ForgeHeadlessServer {
             info.add("attachments", attachments);
         }
 
-        // For auras, show what they're attached to
-        if (permanent.isAura() && permanent.getAttachedTo() != null) {
-            info.addProperty("attached_to", permanent.getAttachedTo().getName());
+        // For auras and equipment, show what they're attached to
+        if (permanent.getAttachedTo() != null) {
+            Card attachedTo = permanent.getAttachedTo();
+            info.addProperty("attached_to", attachedTo.getName());
+            info.addProperty("attached_to_id", attachedTo.getId());
         }
 
         // Activated abilities

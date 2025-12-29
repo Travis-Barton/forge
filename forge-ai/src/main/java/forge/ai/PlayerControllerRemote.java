@@ -68,7 +68,8 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 continue;
             }
             // Filter to only abilities the player can actually activate AND afford
-            if (sa.canPlay() && sa.getActivatingPlayer() == player && ComputerUtilMana.canPayManaCost(sa, player, 0, false)) {
+            if (sa.canPlay() && sa.getActivatingPlayer() == player
+                    && ComputerUtilMana.canPayManaCost(sa, player, 0, false)) {
                 allAbilities.add(sa);
             }
         }
@@ -136,11 +137,15 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                         action.addProperty("mana_cost",
                                 sa.getPayCosts() != null ? sa.getPayCosts().toSimpleString() : "no cost");
                         action.addProperty("requires_targets", sa.usesTargeting());
+
+                        // For equipment, show what it's currently attached to
+                        if (source != null && source.isEquipment() && source.getAttachedTo() != null) {
+                            Card attachedTo = source.getAttachedTo();
+                            action.addProperty("currently_attached_to", attachedTo.getName());
+                            action.addProperty("currently_attached_to_id", attachedTo.getId());
+                        }
                     }
 
-                    // Add legacy "card" field for compatibility with some agents
-                    action.addProperty("card", source != null ? source.getName() : "Unknown");
-                    
                     actionsList.add(action);
                 }
 
@@ -170,12 +175,13 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                     return null; // Null means pass priority
                 }
 
-                if ("possible_actions".equals(response.getDecisionType()) || "action".equals(response.getDecisionType())) {
+                if ("possible_actions".equals(response.getDecisionType())
+                        || "action".equals(response.getDecisionType())) {
                     int chosenIndex = response.getIndex();
                     if (chosenIndex >= 0 && chosenIndex < actions.size()) {
                         SpellAbility chosen = actions.get(chosenIndex);
                         System.out.println("AI chose action: " + chosen.toString());
-                        
+
                         // If the spell requires targeting, we need to set up targets BEFORE returning
                         if (chosen.usesTargeting()) {
                             System.out.println("Spell requires targeting, setting up targets...");
@@ -185,7 +191,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                                 return null;
                             }
                         }
-                        
+
                         List<SpellAbility> result = new ArrayList<>();
                         result.add(chosen);
                         return result;
@@ -416,8 +422,8 @@ public class PlayerControllerRemote extends PlayerControllerAi {
 
                 int min = tgt.getMinTargets(currentAbility.getHostCard(), currentAbility);
                 int max = tgt.getMaxTargets(currentAbility.getHostCard(), currentAbility);
-                String title = "Select targets for " + (currentAbility.getHostCard() != null ? 
-                        currentAbility.getHostCard().getName() : "ability");
+                String title = "Select targets for "
+                        + (currentAbility.getHostCard() != null ? currentAbility.getHostCard().getName() : "ability");
 
                 // Create action state with target options
                 JsonObject actionState = new JsonObject();
@@ -432,16 +438,15 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                     option.addProperty("index", i);
                     option.addProperty("name", target.getName());
                     option.addProperty("id", target.getId());
-                    
+
                     if (target instanceof Player) {
                         option.addProperty("type", "Player");
                         option.addProperty("life", ((Player) target).getLife());
                     } else if (target instanceof Card) {
                         Card c = (Card) target;
-                        option.addProperty("type", c.isCreature() ? "Creature" : 
-                                c.isLand() ? "Land" : 
-                                c.isArtifact() ? "Artifact" :
-                                c.isEnchantment() ? "Enchantment" : "Card");
+                        option.addProperty("type", c.isCreature() ? "Creature"
+                                : c.isLand() ? "Land"
+                                        : c.isArtifact() ? "Artifact" : c.isEnchantment() ? "Enchantment" : "Card");
                         if (c.isCreature()) {
                             option.addProperty("power", c.getNetPower());
                             option.addProperty("toughness", c.getNetToughness());
@@ -457,8 +462,8 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 JsonObject gameState = extractGameState(getGame());
                 JsonObject context = new JsonObject();
                 context.addProperty("requestType", "target");
-                context.addProperty("spellName", currentAbility.getHostCard() != null ? 
-                        currentAbility.getHostCard().getName() : "Unknown");
+                context.addProperty("spellName",
+                        currentAbility.getHostCard() != null ? currentAbility.getHostCard().getName() : "Unknown");
                 context.addProperty("spellDescription", currentAbility.getDescription());
 
                 AIAgentRequest request = new AIAgentRequest(
@@ -596,7 +601,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
         def.addProperty("mana_cost", pc.getRules().getManaCost().toString());
         def.addProperty("type", pc.getRules().getType().toString());
         def.addProperty("oracle_text", pc.getRules().getOracleText());
-        
+
         if (pc.getRules().getType().isCreature()) {
             def.addProperty("power", pc.getRules().getPower().toString());
             def.addProperty("toughness", pc.getRules().getToughness().toString());
@@ -607,19 +612,28 @@ public class PlayerControllerRemote extends PlayerControllerAi {
 
     private void addVisibleCardsToKnownSet(Game game) {
         // Player 1 Zones (Our Agent)
-        for (Card c : player.getCardsIn(ZoneType.Hand)) knownCardNames.add(c.getName());
-        for (Card c : player.getCardsIn(ZoneType.Graveyard)) knownCardNames.add(c.getName());
-        for (Card c : player.getCardsIn(ZoneType.Battlefield)) knownCardNames.add(c.getName());
-        for (Card c : player.getCardsIn(ZoneType.Exile)) knownCardNames.add(c.getName());
-        for (Card c : player.getCardsIn(ZoneType.Command)) knownCardNames.add(c.getName());
+        for (Card c : player.getCardsIn(ZoneType.Hand))
+            knownCardNames.add(c.getName());
+        for (Card c : player.getCardsIn(ZoneType.Graveyard))
+            knownCardNames.add(c.getName());
+        for (Card c : player.getCardsIn(ZoneType.Battlefield))
+            knownCardNames.add(c.getName());
+        for (Card c : player.getCardsIn(ZoneType.Exile))
+            knownCardNames.add(c.getName());
+        for (Card c : player.getCardsIn(ZoneType.Command))
+            knownCardNames.add(c.getName());
 
         // Player 2 Zones (Visible)
-        Player opponent = player.getSingleOpponent(); 
+        Player opponent = player.getSingleOpponent();
         if (opponent != null) {
-            for (Card c : opponent.getCardsIn(ZoneType.Graveyard)) knownCardNames.add(c.getName());
-            for (Card c : opponent.getCardsIn(ZoneType.Battlefield)) knownCardNames.add(c.getName());
-            for (Card c : opponent.getCardsIn(ZoneType.Exile)) knownCardNames.add(c.getName());
-            for (Card c : opponent.getCardsIn(ZoneType.Command)) knownCardNames.add(c.getName());
+            for (Card c : opponent.getCardsIn(ZoneType.Graveyard))
+                knownCardNames.add(c.getName());
+            for (Card c : opponent.getCardsIn(ZoneType.Battlefield))
+                knownCardNames.add(c.getName());
+            for (Card c : opponent.getCardsIn(ZoneType.Exile))
+                knownCardNames.add(c.getName());
+            for (Card c : opponent.getCardsIn(ZoneType.Command))
+                knownCardNames.add(c.getName());
         }
 
         // Stack
@@ -740,7 +754,8 @@ public class PlayerControllerRemote extends PlayerControllerAi {
 
     /**
      * Sets up targets for a spell before it's added to the stack.
-     * This is called from chooseSpellAbilityToPlay when the chosen spell requires targeting.
+     * This is called from chooseSpellAbilityToPlay when the chosen spell requires
+     * targeting.
      * Handles the main ability AND any sub-abilities that also require targeting.
      * Returns true if targeting was successful for all abilities, false otherwise.
      */
@@ -784,7 +799,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
         // Get all valid target candidates
         List<GameEntity> candidates = tgt.getAllCandidates(sa, true);
         if (candidates.isEmpty()) {
-            System.out.println("No valid targets available for " + abilityLabel + " ability of " + 
+            System.out.println("No valid targets available for " + abilityLabel + " ability of " +
                     (sa.getHostCard() != null ? sa.getHostCard().getName() : "Unknown"));
             return false;
         }
@@ -794,7 +809,8 @@ public class PlayerControllerRemote extends PlayerControllerAi {
         String spellName = sa.getHostCard() != null ? sa.getHostCard().getName() : "ability";
         String title = "Select targets for " + spellName + " (" + abilityLabel + ")";
 
-        // Include the ability description to help the agent understand what this target is for
+        // Include the ability description to help the agent understand what this target
+        // is for
         String abilityDesc = sa.getDescription();
 
         System.out.println("Setting up targets for: " + title);
@@ -836,10 +852,10 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                     option.addProperty("life", ((Player) target).getLife());
                 } else if (target instanceof Card) {
                     Card c = (Card) target;
-                    option.addProperty("type", c.isCreature() ? "Creature" :
-                            c.isLand() ? "Land" :
-                            c.isArtifact() ? "Artifact" :
-                            c.isEnchantment() ? "Enchantment" : "Card");
+                    option.addProperty("type",
+                            c.isCreature() ? "Creature"
+                                    : c.isLand() ? "Land"
+                                            : c.isArtifact() ? "Artifact" : c.isEnchantment() ? "Enchantment" : "Card");
                     if (c.isCreature()) {
                         option.addProperty("power", c.getNetPower());
                         option.addProperty("toughness", c.getNetToughness());
@@ -890,12 +906,14 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 System.out.println("Target selection complete for " + abilityLabel + " (" + targetsAdded + " targets)");
                 return true;
             } else {
-                System.out.println("Not enough targets selected for " + abilityLabel + " (" + targetsAdded + "/" + min + ")");
+                System.out.println(
+                        "Not enough targets selected for " + abilityLabel + " (" + targetsAdded + "/" + min + ")");
                 return false;
             }
 
         } catch (Exception e) {
-            System.err.println("AI agent error in setupTargetsForSingleAbility (" + abilityLabel + "): " + e.getMessage());
+            System.err.println(
+                    "AI agent error in setupTargetsForSingleAbility (" + abilityLabel + "): " + e.getMessage());
             e.printStackTrace();
             return false;
         }
