@@ -347,12 +347,16 @@
             </div>
 
             <div class="battlefield-container">
-                <div id="opponent-area" class="player-area opponent">
+<div id="opponent-area" class="player-area opponent">
                     <div class="player-header">
                         <span class="player-name" id="opponent-name">Opponent</span>
                         <span class="life" id="opponent-life">20</span>
                     </div>
                     <div class="library-count">Library: <span id="opponent-library">0</span> cards</div>
+                    <div class="zone hand-zone">
+                        <div class="zone-label">Hand</div>
+                        <div class="cards" id="opponent-hand"></div>
+                    </div>
                 <div class="zone battlefield-zone">
                         <div class="zone-label">Battlefield</div>
                         <div class="battlefield-split">
@@ -723,11 +727,12 @@ function renderCards(cards, containerId) {
                 document.getElementById('active-player').textContent =
                     state.activePlayerId === self.id ? self.name : opponent.name;
 
-                // Update opponent
+// Update opponent
                 document.getElementById('opponent-name').textContent = opponent.name || 'Opponent';
                 document.getElementById('opponent-life').textContent = opponent.life || 0;
                 document.getElementById('opponent-library').textContent = opponent.libraryCount || 0;
                 renderBattlefield(opponent.battlefield, 'opponent-lands', 'opponent-permanents');
+                renderCards(opponent.hand, 'opponent-hand');
                 renderCards(opponent.graveyard, 'opponent-graveyard');
 
                 // Update self
