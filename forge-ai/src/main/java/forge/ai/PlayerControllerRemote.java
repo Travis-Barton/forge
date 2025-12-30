@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import forge.StaticData;
 import forge.game.spellability.TargetRestrictions;
@@ -28,14 +29,34 @@ import forge.item.PaperCard;
 
 public class PlayerControllerRemote extends PlayerControllerAi {
 
+    // Static map to track game UUIDs - ensures both players get the same UUID for the same game
+    private static final Map<Integer, String> GAME_UUID_MAP = new ConcurrentHashMap<>();
+
     private final AIAgentClient aiAgentClient;
     private final String gameId;
+    private final String playerId;
 
     public PlayerControllerRemote(Game game, Player player, LobbyPlayerAi lobbyPlayer, AIAgentClient aiAgentClient) {
         super(game, player, lobbyPlayer);
         this.aiAgentClient = aiAgentClient;
-        this.gameId = UUID.randomUUID().toString();
-        System.out.println("PlayerControllerRemote instantiated. GameID: " + gameId);
+        
+        // Generate or retrieve a shared UUID for this game
+        // Both players in the same game will get the same gameId
+        this.gameId = GAME_UUID_MAP.computeIfAbsent(game.getId(), 
+            k -> UUID.randomUUID().toString());
+        
+        // Generate a unique UUID for this player
+        this.playerId = UUID.randomUUID().toString();
+        
+        System.out.println("PlayerControllerRemote instantiated. GameID: " + gameId + ", PlayerID: " + playerId);
+    }
+    
+    /**
+     * Clean up the game UUID when a game ends to prevent memory leaks.
+     * Call this from game cleanup code if needed.
+     */
+    public static void cleanupGameUUID(int gameId) {
+        GAME_UUID_MAP.remove(gameId);
     }
 
     @Override
@@ -164,7 +185,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 context.addProperty("playerName", player.getName());
 
                 AIAgentRequest request = new AIAgentRequest(
-                        gameId, "possible_actions", gameState, actionState, context);
+                        gameId, playerId, "possible_actions", gameState, actionState, context);
 
                 System.out.println("Calling AI agent for possible_actions...");
                 AIAgentResponse response = aiAgentClient.requestDecision(request);
@@ -262,7 +283,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 context.addProperty("playerName", player.getName());
 
                 AIAgentRequest request = new AIAgentRequest(
-                        gameId, "declare_attackers", gameState, actionState, context);
+                        gameId, playerId, "declare_attackers", gameState, actionState, context);
 
                 System.out.println("Calling AI agent for declare_attackers...");
                 AIAgentResponse response = aiAgentClient.requestDecision(request);
@@ -343,7 +364,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 context.addProperty("playerName", player.getName());
 
                 AIAgentRequest request = new AIAgentRequest(
-                        gameId, "declare_blockers", gameState, actionState, context);
+                        gameId, playerId, "declare_blockers", gameState, actionState, context);
 
                 System.out.println("Calling AI agent for declare_blockers...");
                 AIAgentResponse response = aiAgentClient.requestDecision(request);
@@ -467,7 +488,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 context.addProperty("spellDescription", currentAbility.getDescription());
 
                 AIAgentRequest request = new AIAgentRequest(
-                        gameId, "target", gameState, actionState, context);
+                        gameId, playerId, "target", gameState, actionState, context);
 
                 System.out.println("Calling AI agent for spell target selection...");
                 System.out.println("Available targets (" + candidates.size() + "):");
@@ -553,7 +574,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
                 context.addProperty("spellDescription", sa != null ? sa.getDescription() : "");
 
                 AIAgentRequest request = new AIAgentRequest(
-                        gameId, "target", gameState, actionState, context);
+                        gameId, playerId, "target", gameState, actionState, context);
 
                 System.out.println("Calling AI agent for target selection...");
                 AIAgentResponse response = aiAgentClient.requestDecision(request);
@@ -875,7 +896,7 @@ public class PlayerControllerRemote extends PlayerControllerAi {
             context.addProperty("abilityLabel", abilityLabel);
 
             AIAgentRequest request = new AIAgentRequest(
-                    gameId, "target", gameState, actionState, context);
+                    gameId, playerId, "target", gameState, actionState, context);
 
             System.out.println("Calling AI agent for target selection (" + abilityLabel + ")...");
             AIAgentResponse response = aiAgentClient.requestDecision(request);

@@ -188,14 +188,16 @@ public class AIAgentClient {
      */
     public static class AIAgentRequest {
         private final String gameId;
+        private final String playerId;
         private final String requestType;
         private final JsonObject gameState;
         private final JsonObject actionState;
         private final JsonObject context;
 
-        public AIAgentRequest(String gameId, String requestType, JsonObject gameState,
+        public AIAgentRequest(String gameId, String playerId, String requestType, JsonObject gameState,
                 JsonObject actionState, JsonObject context) {
             this.gameId = gameId;
+            this.playerId = playerId;
             this.requestType = requestType;
             this.gameState = gameState;
             this.actionState = actionState;
@@ -205,6 +207,7 @@ public class AIAgentClient {
         public JsonObject toJson() {
             JsonObject json = new JsonObject();
             json.addProperty("gameId", gameId);
+            json.addProperty("playerId", playerId);
             json.addProperty("requestType", requestType);
             json.add("gameState", gameState);
             json.add("actionState", actionState);

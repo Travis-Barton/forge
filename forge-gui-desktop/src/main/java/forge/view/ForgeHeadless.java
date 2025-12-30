@@ -86,12 +86,16 @@ public class ForgeHeadless {
     private static volatile String currentPromptType = "none"; // "action", "target", "none"
     private static volatile JsonObject currentPromptData = new JsonObject();
 
-    // AI Agent Configuration
-    private static volatile String aiAgentEndpoint = null;
+    // AI Agent Configuration (per-player endpoints)
+    private static volatile String p1Endpoint = null;
+    private static volatile String p2Endpoint = null;
+    private static volatile String aiAgentEndpoint = null; // Legacy: shared endpoint
     private static volatile String gameId = null;
-    private static volatile AIAgentClient aiAgentClient = null;
+    private static volatile AIAgentClient p1AgentClient = null;
+    private static volatile AIAgentClient p2AgentClient = null;
     private static volatile boolean condensedLogging = false;
-    private static volatile String customDeckName = null;
+    private static volatile String deck1Name = null;
+    private static volatile String deck2Name = null;
     private static final java.util.Set<String> knownCardNames = new java.util.HashSet<>();
 
     public static void main(String[] args) {
@@ -122,11 +126,19 @@ public class ForgeHeadless {
             } else if (arg.equals("--condensed-log")) {
                 condensedLogging = true;
             } else if ((arg.equals("--use-deck") || arg.equals("--deck")) && i + 1 < args.length) {
-                customDeckName = args[++i];
+                deck1Name = args[++i];
             } else if (arg.startsWith("--use-deck=")) {
-                customDeckName = arg.substring("--use-deck=".length());
+                deck1Name = arg.substring("--use-deck=".length());
             } else if (arg.startsWith("--deck=")) {
-                customDeckName = arg.substring("--deck=".length());
+                deck1Name = arg.substring("--deck=".length());
+            } else if (arg.equals("--deck1") && i + 1 < args.length) {
+                deck1Name = args[++i];
+            } else if (arg.startsWith("--deck1=")) {
+                deck1Name = arg.substring("--deck1=".length());
+            } else if (arg.equals("--deck2") && i + 1 < args.length) {
+                deck2Name = args[++i];
+            } else if (arg.startsWith("--deck2=")) {
+                deck2Name = arg.substring("--deck2=".length());
             } else if (arg.equals("--help")) {
                 printUsage();
                 System.exit(0);
@@ -134,6 +146,14 @@ public class ForgeHeadless {
                 aiAgentEndpoint = args[++i];
             } else if (arg.startsWith("--ai-endpoint=")) {
                 aiAgentEndpoint = arg.substring("--ai-endpoint=".length());
+            } else if (arg.equals("--p1-endpoint") && i + 1 < args.length) {
+                p1Endpoint = args[++i];
+            } else if (arg.startsWith("--p1-endpoint=")) {
+                p1Endpoint = arg.substring("--p1-endpoint=".length());
+            } else if (arg.equals("--p2-endpoint") && i + 1 < args.length) {
+                p2Endpoint = args[++i];
+            } else if (arg.startsWith("--p2-endpoint=")) {
+                p2Endpoint = arg.substring("--p2-endpoint=".length());
             } else if (arg.equals("--game-id") && i + 1 < args.length) {
                 gameId = args[++i];
             } else if (arg.startsWith("--game-id=")) {
@@ -141,13 +161,26 @@ public class ForgeHeadless {
             }
         }
 
-        // Initialize AI Agent Client if endpoint is configured
-        if (aiAgentEndpoint != null && !aiAgentEndpoint.isEmpty()) {
-            aiAgentClient = new AIAgentClient(aiAgentEndpoint);
-            System.out.println("AI Agent mode enabled. Endpoint: " + aiAgentEndpoint);
-            if (gameId == null) {
-                gameId = UUID.randomUUID().toString();
-            }
+        // Initialize AI Agent Clients for per-player endpoints
+        if (gameId == null) {
+            gameId = UUID.randomUUID().toString();
+        }
+        
+        // Player 1 endpoint (specific or legacy shared)
+        String effectiveP1Endpoint = p1Endpoint != null ? p1Endpoint : aiAgentEndpoint;
+        if (effectiveP1Endpoint != null && !effectiveP1Endpoint.isEmpty()) {
+            p1AgentClient = new AIAgentClient(effectiveP1Endpoint);
+            System.out.println("Player 1 AI Agent enabled. Endpoint: " + effectiveP1Endpoint);
+        }
+        
+        // Player 2 endpoint (specific or legacy shared)
+        String effectiveP2Endpoint = p2Endpoint != null ? p2Endpoint : aiAgentEndpoint;
+        if (effectiveP2Endpoint != null && !effectiveP2Endpoint.isEmpty()) {
+            p2AgentClient = new AIAgentClient(effectiveP2Endpoint);
+            System.out.println("Player 2 AI Agent enabled. Endpoint: " + effectiveP2Endpoint);
+        }
+        
+        if (p1AgentClient != null || p2AgentClient != null) {
             System.out.println("Game ID: " + gameId);
         }
 
@@ -165,27 +198,36 @@ public class ForgeHeadless {
 
         // Generate Decks
         Deck deck1 = null;
+        Deck deck2 = null;
         
-        // Check for custom deck name
-        if (customDeckName != null && !customDeckName.isEmpty()) {
-            System.out.println("Loading custom deck: " + customDeckName);
-            deck1 = loadPreconstructedDeck(customDeckName);
+        // Check for custom deck 1
+        if (deck1Name != null && !deck1Name.isEmpty()) {
+            System.out.println("Loading deck 1: " + deck1Name);
+            deck1 = loadPreconstructedDeck(deck1Name);
             if (deck1 == null) {
-                System.err.println("WARNING: Could not load deck '" + customDeckName + "'. Falling back to random.");
+                System.err.println("WARNING: Could not load deck '" + deck1Name + "'. Falling back to random.");
             }
         }
-        
         if (deck1 == null) {
             deck1 = loadRandomPrecon();
         }
-        
         if (deck1 == null) {
             System.err.println("FATAL ERROR: Could not load any preconstructed decks from " + ForgeConstants.QUEST_PRECON_DIR);
             System.exit(1);
         }
         System.out.println("Loaded Deck 1: " + deck1.getName());
 
-        Deck deck2 = loadRandomPrecon();
+        // Check for custom deck 2
+        if (deck2Name != null && !deck2Name.isEmpty()) {
+            System.out.println("Loading deck 2: " + deck2Name);
+            deck2 = loadPreconstructedDeck(deck2Name);
+            if (deck2 == null) {
+                System.err.println("WARNING: Could not load deck '" + deck2Name + "'. Falling back to random.");
+            }
+        }
+        if (deck2 == null) {
+            deck2 = loadRandomPrecon();
+        }
         if (deck2 == null) {
             System.err.println("FATAL ERROR: Could not load any preconstructed decks from " + ForgeConstants.QUEST_PRECON_DIR);
             System.exit(1);
@@ -195,20 +237,37 @@ public class ForgeHeadless {
         // Setup Players based on configuration
         List<RegisteredPlayer> players = new ArrayList<>();
 
+        // Player 1: "human" means HTTP agent (if endpoint configured) or GUI human
         if (player1IsHuman) {
-            RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Player 1"));
-            // rp1.setStartingLife(1000); // Only for debugging
-            players.add(rp1);
+            if (p1AgentClient != null) {
+                // HTTP Agent player
+                RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Agent 1", p1AgentClient));
+                players.add(rp1);
+            } else {
+                // True GUI human (will use Forge's GUI input)
+                RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Player 1", null));
+                players.add(rp1);
+            }
         } else {
+            // Forge's built-in AI
             RegisteredPlayer rp1 = new RegisteredPlayer(deck1)
                     .setPlayer(new forge.ai.LobbyPlayerAi("AI Player 1", null));
             players.add(rp1);
         }
 
+        // Player 2: "human" means HTTP agent (if endpoint configured) or GUI human
         if (player2IsHuman) {
-            RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Player 2"));
-            players.add(rp2);
+            if (p2AgentClient != null) {
+                // HTTP Agent player
+                RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Agent 2", p2AgentClient));
+                players.add(rp2);
+            } else {
+                // True GUI human
+                RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Player 2", null));
+                players.add(rp2);
+            }
         } else {
+            // Forge's built-in AI
             RegisteredPlayer rp2 = new RegisteredPlayer(deck2)
                     .setPlayer(new forge.ai.LobbyPlayerAi("AI Player 2", null));
             players.add(rp2);
@@ -516,22 +575,29 @@ public class ForgeHeadless {
         System.out.println("\nUsage: java -cp <jar> forge.view.ForgeHeadless [options]");
         System.out.println("\nPlayer Options:");
         System.out.println("  --both-human    Both players are human-controlled (interactive)");
-        System.out.println("  --both-ai       Both players are AI-controlled (simulation mode)");
-        System.out.println("  --p1-ai         Player 1 is AI-controlled (default: human)");
-        System.out.println("  --p2-human      Player 2 is human-controlled (default: AI)");
-        System.out.println("\nAI Agent Options:");
-        System.out.println("  --ai-endpoint <url>   URL of external AI agent for decision-making");
-        System.out.println("  --game-id <id>        Unique game ID for tracking (auto-generated if not provided)");
-        System.out.println("\nOther Options:");
+        System.out.println("  --both-ai       Both players are AI-controlled (Forge AI)");
+        System.out.println("  --p1-ai         Player 1 is Forge AI (default: human/agent)");
+        System.out.println("  --p2-human      Player 2 is human/agent (default: Forge AI)");
+        System.out.println("\nAI Agent Options (per-player endpoints):");
+        System.out.println("  --p1-endpoint <url>   HTTP endpoint for Player 1's AI agent");
+        System.out.println("  --p2-endpoint <url>   HTTP endpoint for Player 2's AI agent");
+        System.out.println("  --ai-endpoint <url>   Legacy: shared endpoint for all human players");
+        System.out.println("  --game-id <id>        Unique game ID for tracking (auto-generated)");
+        System.out.println("\nDeck Options:");
+        System.out.println("  --deck1 <name>  Deck for Player 1 (from test-decks/ or precons)");
+        System.out.println("  --deck2 <name>  Deck for Player 2 (from test-decks/ or precons)");
+        System.out.println("  --deck <name>   Legacy: same as --deck1");
+        System.out.println("\nDisplay Options:");
+        System.out.println("  --gui           Launch with GUI (watch mode)");
         System.out.println("  --verbose       Enable verbose logging of game events");
         System.out.println("  --condensed-log Enable condensed logging (actions, state, decisions)");
-        System.out.println("  --deck <name>   Load a specific deck from test-decks/ or precons");
         System.out.println("  --help          Show this help message");
         System.out.println("\nHTTP Server running on port " + PORT);
-        System.out.println("\nAI Agent Mode:");
-        System.out.println("  When --ai-endpoint is provided, the game will call out to the specified");
-        System.out.println("  endpoint for all player decisions instead of waiting for HTTP input.");
-        System.out.println("  The endpoint receives game state + action options and returns decisions.");
+        System.out.println("\nExamples:");
+        System.out.println("  # AI Agent vs AI Agent (headless)");
+        System.out.println("  java -cp forge.jar forge.view.ForgeHeadless --p1-endpoint http://localhost:5005 --p2-endpoint http://localhost:5006");
+        System.out.println("\n  # AI Agent vs Forge AI (with GUI)");
+        System.out.println("  java -cp forge.jar forge.view.ForgeHeadless --gui --p1-endpoint http://localhost:5005 --p1-ai");
     }
 
     private static void initialize() {
@@ -801,21 +867,24 @@ public class ForgeHeadless {
     }
 
     private static class HeadlessLobbyPlayer extends forge.ai.LobbyPlayerAi {
-        public HeadlessLobbyPlayer(String name) {
+        private final AIAgentClient agentClient;
+        
+        public HeadlessLobbyPlayer(String name, AIAgentClient client) {
             super(name, null);
+            this.agentClient = client;
         }
 
         @Override
         public Player createIngamePlayer(Game game, final int id) {
-            Player ai = new Player(getName(), game, id);
-            // Use PlayerControllerRemote with our static aiAgentClient
-            if (aiAgentClient != null) {
-                ai.setFirstController(new forge.ai.PlayerControllerRemote(game, ai, this, aiAgentClient));
+            Player player = new Player(getName(), game, id);
+            // Use PlayerControllerRemote with the player's specific agent client
+            if (agentClient != null) {
+                player.setFirstController(new forge.ai.PlayerControllerRemote(game, player, this, agentClient));
             } else {
                 // Fallback to basic AI if no agent configured
-                ai.setFirstController(new forge.ai.PlayerControllerAi(game, ai, this));
+                player.setFirstController(new forge.ai.PlayerControllerAi(game, player, this));
             }
-            return ai;
+            return player;
         }
     }
 
