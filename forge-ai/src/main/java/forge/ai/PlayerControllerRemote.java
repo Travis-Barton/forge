@@ -541,9 +541,50 @@ public class PlayerControllerRemote extends PlayerControllerAi {
     public <T extends GameEntity> T chooseSingleEntityForEffect(FCollectionView<T> optionList,
             DelayedReveal delayedReveal, SpellAbility sa, String title, boolean isOptional, Player targetedPlayer,
             Map<String, Object> params) {
-        List<T> results = chooseEntitiesForEffect(optionList, isOptional ? 0 : 1, 1, delayedReveal, sa, title,
-                targetedPlayer, params);
-        return results.isEmpty() ? null : results.get(0);
+        
+        // IMPORTANT: We cannot call this.chooseEntitiesForEffect here because that would
+        // create infinite recursion when super.chooseEntitiesForEffect calls back to
+        // chooseSingleEntityForEffect via polymorphism.
+        // Instead, we handle the single entity case directly.
+        
+        List<T> options = new ArrayList<>();
+        for (T t : optionList)
+            options.add(t);
+
+        if (options.isEmpty()) {
+            return null;
+        }
+
+        // If AI agent is configured, call out to it for decision
+        if (aiAgentClient != null) {
+            try {
+                JsonObject actionState = createTargetOptionsJson(optionList, isOptional ? 0 : 1, 1, title);
+                JsonObject gameState = extractGameState(getGame());
+                JsonObject context = new JsonObject();
+                context.addProperty("requestType", "target");
+                context.addProperty("spellName",
+                        sa != null && sa.getHostCard() != null ? sa.getHostCard().getName() : "Unknown");
+                context.addProperty("spellDescription", sa != null ? sa.getDescription() : "");
+
+                AIAgentRequest request = new AIAgentRequest(
+                        gameId, playerId, "target", gameState, actionState, context);
+
+                System.out.println("Calling AI agent for single entity selection...");
+                AIAgentResponse response = aiAgentClient.requestDecision(request);
+
+                int selectedIndex = response.getIndex();
+                if (selectedIndex >= 0 && selectedIndex < options.size()) {
+                    T selected = options.get(selectedIndex);
+                    System.out.println("AI agent selected: " + selected);
+                    return selected;
+                }
+            } catch (Exception e) {
+                System.err.println("AI agent error in chooseSingleEntityForEffect, falling back: " + e.getMessage());
+            }
+        }
+
+        // Fallback to default AI - call super directly to avoid recursion
+        return super.chooseSingleEntityForEffect(optionList, delayedReveal, sa, title, isOptional, targetedPlayer, params);
     }
 
     @Override

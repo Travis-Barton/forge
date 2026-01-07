@@ -606,9 +606,10 @@ public class ForgeHeadless {
 
     private static void runGame(Match match, Game game, boolean player1IsHuman, boolean player2IsHuman,
             boolean verboseLogging) {
-        // Start Game
-        if (verboseLogging) {
-            HeadlessGameObserver observer = new HeadlessGameObserver();
+        // Always create observer when AI agents are connected (for reflect notifications)
+        // or when verbose logging is enabled (for detailed game logging)
+        if (verboseLogging || p1AgentClient != null || p2AgentClient != null) {
+            HeadlessGameObserver observer = new HeadlessGameObserver(verboseLogging);
             match.subscribeToEvents(observer);
             game.subscribeToEvents(observer);
         }
@@ -894,8 +895,10 @@ public class ForgeHeadless {
 
     private static class HeadlessGameObserver extends forge.game.event.IGameEventVisitor.Base<Void> {
         private PrintStream logStream;
+        private final boolean verboseLogging;
 
-        public HeadlessGameObserver() {
+        public HeadlessGameObserver(boolean verboseLogging) {
+            this.verboseLogging = verboseLogging;
             try {
                 logStream = new PrintStream(new FileOutputStream("headless_game.log"), true);
             } catch (IOException e) {
@@ -908,6 +911,12 @@ public class ForgeHeadless {
             logStream.println(message);
             // System.out.println(message); // Uncomment to also see in console
         }
+        
+        private void verboseLog(String message) {
+            if (verboseLogging) {
+                log(message);
+            }
+        }
 
         @com.google.common.eventbus.Subscribe
         public void receive(forge.game.event.GameEvent ev) {
@@ -916,14 +925,14 @@ public class ForgeHeadless {
 
         @Override
         public Void visit(GameEventTurnBegan event) {
-            log("\n" + ANSI_WHITE + "=== Turn " + event.turnNumber() + " - " + event.turnOwner().getName() + " ==="
+            verboseLog("\n" + ANSI_WHITE + "=== Turn " + event.turnNumber() + " - " + event.turnOwner().getName() + " ==="
                     + ANSI_RESET);
             return null;
         }
 
         @Override
         public Void visit(GameEventTurnPhase event) {
-            log(ANSI_WHITE + "Phase: " + event.phase() + ANSI_RESET);
+            verboseLog(ANSI_WHITE + "Phase: " + event.phase() + ANSI_RESET);
             return null;
         }
 
@@ -931,7 +940,233 @@ public class ForgeHeadless {
         public Void visit(GameEventGameOutcome event) {
             log("\n*** GAME OVER ***");
             log("Result: " + event.result().getOutcomeStrings());
+            
+            // Send "reflect" request to all connected AI agents
+            sendReflectToAgents(event);
+            
             return null;
+        }
+        
+        /**
+         * Send a "reflect" request to all connected AI agents with the final game state.
+         * This allows agents to learn from the game outcome.
+         * 
+         * Sends to:
+         * - 2 agents if AI vs AI
+         * - 1 agent if AI vs Human/Forge-AI
+         * - 0 agents if no AI agents connected
+         */
+        private void sendReflectToAgents(GameEventGameOutcome event) {
+            if (p1AgentClient == null && p2AgentClient == null) {
+                log("No AI agents connected, skipping reflect.");
+                return;
+            }
+            
+            Game game = currentGame;
+            if (game == null) {
+                log("Game is null, cannot send reflect.");
+                return;
+            }
+            
+            // Build the final game state
+            JsonObject finalGameState = extractGameState(game);
+            
+            // Add game outcome information
+            forge.game.GameOutcome outcome = event.result();
+            String winnerName = outcome.getWinningLobbyPlayer() != null 
+                ? outcome.getWinningLobbyPlayer().getName() : "Unknown";
+            String loserName = "Unknown";
+            
+            // Find all players and identify winner/loser
+            List<Player> allPlayers = game.getPlayers();
+            Player winnerPlayer = null;
+            Player loserPlayer = null;
+            
+            for (Player p : allPlayers) {
+                if (p.getLobbyPlayer() != null && 
+                    p.getLobbyPlayer().getName().equals(winnerName)) {
+                    winnerPlayer = p;
+                } else {
+                    loserPlayer = p;
+                    loserName = p.getName();
+                }
+            }
+            
+            JsonObject outcomeInfo = new JsonObject();
+            outcomeInfo.addProperty("winner", winnerName);
+            outcomeInfo.addProperty("loser", loserName);
+            outcomeInfo.addProperty("winnerId", winnerPlayer != null ? winnerPlayer.getId() : -1);
+            outcomeInfo.addProperty("loserId", loserPlayer != null ? loserPlayer.getId() : -1);
+            outcomeInfo.addProperty("winCondition", outcome.getWinCondition() != null 
+                ? outcome.getWinCondition().toString() : "Unknown");
+            outcomeInfo.addProperty("turnsPlayed", outcome.getLastTurnNumber());
+            outcomeInfo.addProperty("lifeDelta", outcome.getLifeDelta());
+            
+            // Add outcome strings for detailed result
+            JsonArray outcomeStrings = new JsonArray();
+            for (String s : outcome.getOutcomeStrings()) {
+                outcomeStrings.add(s);
+            }
+            outcomeInfo.add("outcomeStrings", outcomeStrings);
+            
+            finalGameState.add("gameOutcome", outcomeInfo);
+            
+            // Find which player corresponds to which agent by checking their controllers
+            // Player 1's agent (p1AgentClient) controls the first HTTP agent player
+            // Player 2's agent (p2AgentClient) controls the second HTTP agent player
+            Player p1Player = null;
+            Player p2Player = null;
+            
+            for (Player p : allPlayers) {
+                if (p.getController() instanceof forge.ai.PlayerControllerRemote) {
+                    forge.ai.PlayerControllerRemote controller = 
+                        (forge.ai.PlayerControllerRemote) p.getController();
+                    // Check which agent client this controller uses
+                    // We match by checking if this is the first or second remote player
+                    if (p1Player == null) {
+                        p1Player = p;
+                    } else if (p2Player == null) {
+                        p2Player = p;
+                    }
+                }
+            }
+            
+            // Send to Player 1's agent if connected
+            if (p1AgentClient != null && p1Player != null) {
+                boolean isWinner = winnerPlayer != null && winnerPlayer.getId() == p1Player.getId();
+                sendReflectToAgent(p1AgentClient, p1Player, isWinner, winnerName, loserName, 
+                    finalGameState, outcome);
+            } else if (p1AgentClient != null) {
+                // Fallback: couldn't find specific player, use position-based assumption
+                log("Warning: Could not identify P1's in-game player, using fallback");
+                sendReflectToAgentFallback(p1AgentClient, "Agent 1", allPlayers, winnerName, 
+                    finalGameState, outcome);
+            }
+            
+            // Send to Player 2's agent if connected
+            if (p2AgentClient != null && p2Player != null) {
+                boolean isWinner = winnerPlayer != null && winnerPlayer.getId() == p2Player.getId();
+                sendReflectToAgent(p2AgentClient, p2Player, isWinner, winnerName, loserName, 
+                    finalGameState, outcome);
+            } else if (p2AgentClient != null) {
+                // Fallback: couldn't find specific player, use position-based assumption
+                log("Warning: Could not identify P2's in-game player, using fallback");
+                sendReflectToAgentFallback(p2AgentClient, "Agent 2", allPlayers, winnerName, 
+                    finalGameState, outcome);
+            }
+        }
+        
+        /**
+         * Send reflect request to a specific agent with full player identification.
+         */
+        private void sendReflectToAgent(AIAgentClient client, Player player, boolean isWinner,
+                String winnerName, String loserName, JsonObject gameState, 
+                forge.game.GameOutcome outcome) {
+            try {
+                String playerName = player.getName();
+                int playerId = player.getId();
+                String opponentName = isWinner ? loserName : winnerName;
+                
+                // Build action state with comprehensive result info
+                JsonObject actionState = new JsonObject();
+                actionState.addProperty("result", isWinner ? "win" : "loss");
+                actionState.addProperty("yourName", playerName);
+                actionState.addProperty("yourId", playerId);
+                actionState.addProperty("opponentName", opponentName);
+                actionState.addProperty("winner", winnerName);
+                actionState.addProperty("loser", loserName);
+                
+                // Build context
+                JsonObject context = new JsonObject();
+                context.addProperty("phase", "GAME_OVER");
+                context.addProperty("requestReason", "Game has ended. Reflect on the match.");
+                
+                // Create the request with proper gameId and playerId
+                AIAgentClient.AIAgentRequest request = new AIAgentClient.AIAgentRequest(
+                    gameId,
+                    String.valueOf(playerId),  // Use actual player ID
+                    "reflect",
+                    gameState,
+                    actionState,
+                    context
+                );
+                
+                log("Sending reflect request to " + playerName + " (ID: " + playerId + 
+                    ", result: " + (isWinner ? "WIN" : "LOSS") + ")");
+                log("  GameId: " + gameId);
+                log("  Winner: " + winnerName + ", Loser: " + loserName);
+                
+                // Send asynchronously to not block game shutdown
+                new Thread(() -> {
+                    try {
+                        AIAgentClient.AIAgentResponse response = client.requestDecision(request);
+                        log("Reflect response from " + playerName + ": " + response.getDecisionType());
+                    } catch (AIAgentClient.AIAgentException e) {
+                        log("Failed to send reflect to " + playerName + ": " + e.getMessage());
+                    }
+                }).start();
+                
+            } catch (Exception e) {
+                log("Error building reflect request: " + e.getMessage());
+            }
+        }
+        
+        /**
+         * Fallback reflect method when we can't identify the specific player.
+         */
+        private void sendReflectToAgentFallback(AIAgentClient client, String agentLabel, 
+                List<Player> allPlayers, String winnerName, JsonObject gameState, 
+                forge.game.GameOutcome outcome) {
+            try {
+                // Try to find player by name matching
+                boolean isWinner = false;
+                String playerName = agentLabel;
+                int playerId = -1;
+                
+                for (Player p : allPlayers) {
+                    if (p.getName().toLowerCase().contains("agent") || 
+                        p.getName().toLowerCase().contains(agentLabel.toLowerCase())) {
+                        playerName = p.getName();
+                        playerId = p.getId();
+                        isWinner = p.getName().equals(winnerName);
+                        break;
+                    }
+                }
+                
+                JsonObject actionState = new JsonObject();
+                actionState.addProperty("result", isWinner ? "win" : "loss");
+                actionState.addProperty("yourName", playerName);
+                actionState.addProperty("yourId", playerId);
+                actionState.addProperty("winner", winnerName);
+                
+                JsonObject context = new JsonObject();
+                context.addProperty("phase", "GAME_OVER");
+                context.addProperty("requestReason", "Game has ended. Reflect on the match.");
+                
+                AIAgentClient.AIAgentRequest request = new AIAgentClient.AIAgentRequest(
+                    gameId,
+                    String.valueOf(playerId),
+                    "reflect",
+                    gameState,
+                    actionState,
+                    context
+                );
+                
+                log("Sending reflect (fallback) to " + playerName + " (result: " + 
+                    (isWinner ? "WIN" : "LOSS") + ")");
+                
+                new Thread(() -> {
+                    try {
+                        AIAgentClient.AIAgentResponse response = client.requestDecision(request);
+                        log("Reflect response from " + playerName + ": " + response.getDecisionType());
+                    } catch (AIAgentClient.AIAgentException e) {
+                        log("Failed to send reflect to " + playerName + ": " + e.getMessage());
+                    }
+                }).start();
+                
+            } catch (Exception e) {
+                log("Error in fallback reflect: " + e.getMessage());
+            }
         }
 
         @Override
