@@ -65,6 +65,7 @@ import forge.StaticData;
 
 import forge.deck.DeckgenUtil;
 import forge.util.Aggregates;
+import forge.game.card.CounterEnumType;
 
 public class ForgeHeadless {
     // ANSI Color Constants
@@ -106,6 +107,7 @@ public class ForgeHeadless {
         boolean player2IsHuman = false; // default
         boolean verboseLogging = false; // default
         boolean useGui = false;
+        boolean startHttpServer = true; // default - can be disabled for pure AI games
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -158,6 +160,8 @@ public class ForgeHeadless {
                 gameId = args[++i];
             } else if (arg.startsWith("--game-id=")) {
                 gameId = arg.substring("--game-id=".length());
+            } else if (arg.equals("--no-server")) {
+                startHttpServer = false;
             }
         }
 
@@ -184,8 +188,12 @@ public class ForgeHeadless {
             System.out.println("Game ID: " + gameId);
         }
 
-        // Start HTTP Server (still needed for fallback and monitoring)
-        startHttpServer();
+        // Start HTTP Server (skip for pure AI vs AI games with --no-server flag)
+        if (startHttpServer) {
+            startHttpServer();
+        } else {
+            System.out.println("HTTP Server disabled (--no-server flag)");
+        }
 
         if (useGui) {
             GuiBase.setInterface(new GuiDesktop());
@@ -279,7 +287,7 @@ public class ForgeHeadless {
         // Setup Match
         GameRules rules = new GameRules(GameType.Constructed);
         if (useGui) {
-            System.out.println("Launching GUI Match...");
+            System.out.println("DEBUG: Launching GUI Match...");
             HostedMatch hostedMatch = new HostedMatch();
             Singletons.getControl().addMatch(hostedMatch);
             
@@ -302,11 +310,20 @@ public class ForgeHeadless {
             }).start();
             
         } else {
+            System.out.println("DEBUG: Creating Match...");
             Match match = new Match(rules, players, "Headless Match");
+            System.out.println("DEBUG: Creating Game...");
             Game game = match.createGame();
+            System.out.println("DEBUG: Game created, setting currentGame...");
             currentGame = game;
-
+            
+            System.out.println("DEBUG: Calling runGame...");
             runGame(match, game, player1IsHuman, player2IsHuman, verboseLogging);
+            System.out.println("DEBUG: runGame returned, game complete!");
+            
+            // In headless mode, exit after game completes
+            System.out.println("Headless game finished. Exiting.");
+            System.exit(0);
         }
     }
 
@@ -606,13 +623,13 @@ public class ForgeHeadless {
 
     private static void runGame(Match match, Game game, boolean player1IsHuman, boolean player2IsHuman,
             boolean verboseLogging) {
-        // Always create observer when AI agents are connected (for reflect notifications)
-        // or when verbose logging is enabled (for detailed game logging)
-        if (verboseLogging || p1AgentClient != null || p2AgentClient != null) {
-            HeadlessGameObserver observer = new HeadlessGameObserver(verboseLogging);
-            match.subscribeToEvents(observer);
-            game.subscribeToEvents(observer);
-        }
+        // Always create observer to capture game results (for ELO system, etc.)
+        // The observer handles both verbose logging and game result JSON output
+        HeadlessGameObserver observer = new HeadlessGameObserver(verboseLogging);
+        match.subscribeToEvents(observer);
+        game.subscribeToEvents(observer);
+        
+        System.out.println("DEBUG: Starting game with observer (verbose=" + verboseLogging + ")");
         match.startGame(game);
     }
 
@@ -630,9 +647,15 @@ public class ForgeHeadless {
         def.addProperty("type", pc.getRules().getType().toString());
         def.addProperty("oracle_text", pc.getRules().getOracleText());
         
+        // Creature stats
         if (pc.getRules().getType().isCreature()) {
             def.addProperty("power", pc.getRules().getPower().toString());
             def.addProperty("toughness", pc.getRules().getToughness().toString());
+        }
+        
+        // Planeswalker starting loyalty
+        if (pc.getRules().getType().isPlaneswalker()) {
+            def.addProperty("starting_loyalty", pc.getRules().getInitialLoyalty());
         }
 
         return def;
@@ -798,6 +821,12 @@ public class ForgeHeadless {
             cardObj.addProperty("name", c.getName());
             cardObj.addProperty("id", c.getId());
             cardObj.addProperty("zone", zone.toString());
+            
+            // Add current loyalty for Planeswalkers on the battlefield
+            if (c.isPlaneswalker()) {
+                cardObj.addProperty("loyalty", c.getCounters(CounterEnumType.LOYALTY));
+            }
+            
             zoneArray.add(cardObj);
         }
         return zoneArray;
@@ -941,10 +970,129 @@ public class ForgeHeadless {
             log("\n*** GAME OVER ***");
             log("Result: " + event.result().getOutcomeStrings());
             
+            // Write game_result.json for external parsing (ELO system, etc.)
+            writeGameResultJson(event);
+            
             // Send "reflect" request to all connected AI agents
             sendReflectToAgents(event);
             
             return null;
+        }
+        
+        /**
+         * Write game_result.json with structured game outcome data.
+         * This allows external tools (like the ELO tournament system) to reliably
+         * parse game results without log file parsing.
+         */
+        private void writeGameResultJson(GameEventGameOutcome event) {
+            try {
+                Game game = currentGame;
+                if (game == null) {
+                    log("Game is null, cannot write game_result.json");
+                    return;
+                }
+                
+                forge.game.GameOutcome outcome = event.result();
+                
+                // Determine winner and loser
+                String winnerName = outcome.getWinningLobbyPlayer() != null 
+                    ? outcome.getWinningLobbyPlayer().getName() : "Unknown";
+                String loserName = "Unknown";
+                String winnerDeck = "";
+                String loserDeck = "";
+                
+                // Find all players and identify winner/loser
+                // Use player names and deck positions to determine winner/loser
+                List<Player> allPlayers = game.getPlayers();
+                
+                for (Player p : allPlayers) {
+                    String playerName = p.getName();
+                    String deckName = p.getRegisteredPlayer() != null && 
+                        p.getRegisteredPlayer().getDeck() != null
+                        ? p.getRegisteredPlayer().getDeck().getName() : "";
+                    
+                    // Check if this player is the winner by comparing names
+                    // The winner's name matches the winning lobby player's name
+                    boolean isWinner = false;
+                    
+                    // Try LobbyPlayer match first
+                    if (p.getLobbyPlayer() != null && 
+                        p.getLobbyPlayer().getName().equals(winnerName)) {
+                        isWinner = true;
+                    }
+                    // Fallback: check if player name matches winner name
+                    else if (playerName.equals(winnerName)) {
+                        isWinner = true;
+                    }
+                    // Fallback: check if player has won (outcome check)
+                    else if (p.getOutcome() != null && p.getOutcome().hasWon()) {
+                        isWinner = true;
+                    }
+                    
+                    if (isWinner) {
+                        winnerDeck = deckName;
+                    } else {
+                        loserName = playerName;
+                        loserDeck = deckName;
+                    }
+                }
+                
+                // If we still couldn't determine loser deck, infer from deck names
+                if (loserDeck.isEmpty() && deck1Name != null && deck2Name != null) {
+                    if (winnerDeck.equals(deck1Name)) {
+                        loserDeck = deck2Name;
+                        if (loserName.equals("Unknown")) loserName = "AI Player 2";
+                    } else if (winnerDeck.equals(deck2Name)) {
+                        loserDeck = deck1Name;
+                        if (loserName.equals("Unknown")) loserName = "AI Player 1";
+                    }
+                }
+                
+                // Build the result JSON
+                JsonObject result = new JsonObject();
+                result.addProperty("winner", winnerName);
+                result.addProperty("loser", loserName);
+                result.addProperty("winner_deck", winnerDeck);
+                result.addProperty("loser_deck", loserDeck);
+                result.addProperty("turns", outcome.getLastTurnNumber());
+                result.addProperty("life_delta", outcome.getLifeDelta());
+                result.addProperty("win_condition", outcome.getWinCondition() != null 
+                    ? outcome.getWinCondition().toString() : "Unknown");
+                result.addProperty("game_id", gameId);
+                result.addProperty("timestamp", System.currentTimeMillis());
+                
+                // Add deck names from command line args if available
+                if (deck1Name != null) {
+                    result.addProperty("deck1_name", deck1Name);
+                }
+                if (deck2Name != null) {
+                    result.addProperty("deck2_name", deck2Name);
+                }
+                
+                // Write to individual file for IPC (Python will read and delete)
+                String resultFilename = "game_result_" + gameId + ".json";
+                Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                Gson compactGson = new Gson();  // Compact for JSONL
+                try (PrintStream ps = new PrintStream(new FileOutputStream(resultFilename))) {
+                    ps.println(gson.toJson(result));
+                }
+                
+                // Also append to game_results.jsonl for permanent storage
+                String jsonlFilename = "game_results.jsonl";
+                try (java.io.FileWriter fw = new java.io.FileWriter(jsonlFilename, true);
+                     java.io.BufferedWriter bw = new java.io.BufferedWriter(fw)) {
+                    bw.write(compactGson.toJson(result));
+                    bw.newLine();
+                } catch (IOException e) {
+                    log("Warning: Failed to append to " + jsonlFilename + ": " + e.getMessage());
+                }
+                
+                log("Wrote " + resultFilename + " and appended to " + jsonlFilename + ": " + winnerName + " defeated " + loserName);
+                
+            } catch (Exception e) {
+                log("Error writing game_result.json: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
         
         /**
@@ -1120,18 +1268,22 @@ public class ForgeHeadless {
             try {
                 // Try to find player by name matching
                 boolean isWinner = false;
-                String playerName = agentLabel;
-                int playerId = -1;
+                String foundPlayerName = agentLabel;
+                int foundPlayerId = -1;
                 
                 for (Player p : allPlayers) {
                     if (p.getName().toLowerCase().contains("agent") || 
                         p.getName().toLowerCase().contains(agentLabel.toLowerCase())) {
-                        playerName = p.getName();
-                        playerId = p.getId();
+                        foundPlayerName = p.getName();
+                        foundPlayerId = p.getId();
                         isWinner = p.getName().equals(winnerName);
                         break;
                     }
                 }
+                
+                // Make final copies for lambda
+                final String playerName = foundPlayerName;
+                final int playerId = foundPlayerId;
                 
                 JsonObject actionState = new JsonObject();
                 actionState.addProperty("result", isWinner ? "win" : "loss");
