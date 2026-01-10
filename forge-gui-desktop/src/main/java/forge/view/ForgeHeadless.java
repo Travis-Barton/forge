@@ -1127,15 +1127,8 @@ public class ForgeHeadless {
                     result.add("player2_agent_info", p2Info);
                 }
                 
-                // Write to individual file for IPC (Python will read and delete)
-                String resultFilename = "game_result_" + gameId + ".json";
-                Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                Gson compactGson = new Gson();  // Compact for JSONL
-                try (PrintStream ps = new PrintStream(new FileOutputStream(resultFilename))) {
-                    ps.println(gson.toJson(result));
-                }
-                
-                // Also append to game_results.jsonl for permanent storage
+                // Append to game_results.jsonl for permanent storage
+                Gson compactGson = new Gson();
                 String jsonlFilename = "game_results.jsonl";
                 try (java.io.FileWriter fw = new java.io.FileWriter(jsonlFilename, true);
                      java.io.BufferedWriter bw = new java.io.BufferedWriter(fw)) {
@@ -1145,7 +1138,7 @@ public class ForgeHeadless {
                     log("Warning: Failed to append to " + jsonlFilename + ": " + e.getMessage());
                 }
                 
-                log("Wrote " + resultFilename + " and appended to " + jsonlFilename + ": " + winnerName + " defeated " + loserName);
+                log("Appended to " + jsonlFilename + ": " + winnerName + " defeated " + loserName);
                 
             } catch (Exception e) {
                 log("Error writing game_result.json: " + e.getMessage());
