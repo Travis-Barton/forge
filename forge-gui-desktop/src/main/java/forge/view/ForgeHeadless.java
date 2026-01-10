@@ -94,6 +94,10 @@ public class ForgeHeadless {
     private static volatile String gameId = null;
     private static volatile AIAgentClient p1AgentClient = null;
     private static volatile AIAgentClient p2AgentClient = null;
+    private static volatile AIAgentClient.AgentInfo p1AgentInfo = null;
+    private static volatile AIAgentClient.AgentInfo p2AgentInfo = null;
+    private static volatile String p1ControllerType = null;  // "human", "forge-ai", or "ai_agent:<model>"
+    private static volatile String p2ControllerType = null;
     private static volatile boolean condensedLogging = false;
     private static volatile String deck1Name = null;
     private static volatile String deck2Name = null;
@@ -175,6 +179,16 @@ public class ForgeHeadless {
         if (effectiveP1Endpoint != null && !effectiveP1Endpoint.isEmpty()) {
             p1AgentClient = new AIAgentClient(effectiveP1Endpoint);
             System.out.println("Player 1 AI Agent enabled. Endpoint: " + effectiveP1Endpoint);
+            
+            // Identify the agent by calling /info endpoint
+            try {
+                p1AgentInfo = p1AgentClient.getAgentInfo();
+                p1ControllerType = p1AgentInfo.getDisplayString();
+                System.out.println("Player 1 identified as: " + p1ControllerType);
+            } catch (AIAgentClient.AIAgentException e) {
+                System.err.println("Warning: Could not get agent info for P1: " + e.getMessage());
+                p1ControllerType = "ai_agent:unknown";
+            }
         }
         
         // Player 2 endpoint (specific or legacy shared)
@@ -182,6 +196,16 @@ public class ForgeHeadless {
         if (effectiveP2Endpoint != null && !effectiveP2Endpoint.isEmpty()) {
             p2AgentClient = new AIAgentClient(effectiveP2Endpoint);
             System.out.println("Player 2 AI Agent enabled. Endpoint: " + effectiveP2Endpoint);
+            
+            // Identify the agent by calling /info endpoint
+            try {
+                p2AgentInfo = p2AgentClient.getAgentInfo();
+                p2ControllerType = p2AgentInfo.getDisplayString();
+                System.out.println("Player 2 identified as: " + p2ControllerType);
+            } catch (AIAgentClient.AIAgentException e) {
+                System.err.println("Warning: Could not get agent info for P2: " + e.getMessage());
+                p2ControllerType = "ai_agent:unknown";
+            }
         }
         
         if (p1AgentClient != null || p2AgentClient != null) {
@@ -248,37 +272,45 @@ public class ForgeHeadless {
         // Player 1: "human" means HTTP agent (if endpoint configured) or GUI human
         if (player1IsHuman) {
             if (p1AgentClient != null) {
-                // HTTP Agent player
+                // HTTP Agent player - controller type already set above from /info
                 RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Agent 1", p1AgentClient));
                 players.add(rp1);
             } else {
                 // True GUI human (will use Forge's GUI input)
                 RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Player 1", null));
                 players.add(rp1);
+                p1ControllerType = "human";
+                System.out.println("Player 1 identified as: human");
             }
         } else {
             // Forge's built-in AI
             RegisteredPlayer rp1 = new RegisteredPlayer(deck1)
                     .setPlayer(new forge.ai.LobbyPlayerAi("AI Player 1", null));
             players.add(rp1);
+            p1ControllerType = "forge-ai";
+            System.out.println("Player 1 identified as: forge-ai");
         }
 
         // Player 2: "human" means HTTP agent (if endpoint configured) or GUI human
         if (player2IsHuman) {
             if (p2AgentClient != null) {
-                // HTTP Agent player
+                // HTTP Agent player - controller type already set above from /info
                 RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Agent 2", p2AgentClient));
                 players.add(rp2);
             } else {
                 // True GUI human
                 RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Player 2", null));
                 players.add(rp2);
+                p2ControllerType = "human";
+                System.out.println("Player 2 identified as: human");
             }
         } else {
             // Forge's built-in AI
             RegisteredPlayer rp2 = new RegisteredPlayer(deck2)
                     .setPlayer(new forge.ai.LobbyPlayerAi("AI Player 2", null));
             players.add(rp2);
+            p2ControllerType = "forge-ai";
+            System.out.println("Player 2 identified as: forge-ai");
         }
 
         System.err.println("DEBUG: Player 1 - " + (player1IsHuman ? "Human" : "AI"));
@@ -1067,6 +1099,32 @@ public class ForgeHeadless {
                 }
                 if (deck2Name != null) {
                     result.addProperty("deck2_name", deck2Name);
+                }
+                
+                // Add controller types for ELO tracking (deck+model combinations)
+                if (p1ControllerType != null) {
+                    result.addProperty("player1_controller", p1ControllerType);
+                }
+                if (p2ControllerType != null) {
+                    result.addProperty("player2_controller", p2ControllerType);
+                }
+                
+                // Add detailed agent info if available
+                if (p1AgentInfo != null) {
+                    JsonObject p1Info = new JsonObject();
+                    p1Info.addProperty("controller_type", p1AgentInfo.getControllerType());
+                    p1Info.addProperty("model", p1AgentInfo.getModel());
+                    p1Info.addProperty("version", p1AgentInfo.getVersion());
+                    p1Info.addProperty("agent_name", p1AgentInfo.getAgentName());
+                    result.add("player1_agent_info", p1Info);
+                }
+                if (p2AgentInfo != null) {
+                    JsonObject p2Info = new JsonObject();
+                    p2Info.addProperty("controller_type", p2AgentInfo.getControllerType());
+                    p2Info.addProperty("model", p2AgentInfo.getModel());
+                    p2Info.addProperty("version", p2AgentInfo.getVersion());
+                    p2Info.addProperty("agent_name", p2AgentInfo.getAgentName());
+                    result.add("player2_agent_info", p2Info);
                 }
                 
                 // Write to individual file for IPC (Python will read and delete)

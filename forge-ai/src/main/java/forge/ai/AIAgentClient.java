@@ -184,6 +184,110 @@ public class AIAgentClient {
     }
 
     /**
+     * Get agent info from the /info endpoint.
+     * This identifies the agent's controller type, model, version, etc.
+     * 
+     * @return AgentInfo containing the agent's metadata
+     * @throws AIAgentException if communication fails or response is invalid
+     */
+    public AgentInfo getAgentInfo() throws AIAgentException {
+        HttpURLConnection connection = null;
+        try {
+            // Derive /info URL from the base endpoint
+            String infoUrl = endpointUrl.replaceFirst("/?$", "") + "/info";
+            System.out.println("AIAgentClient: Fetching agent info from " + infoUrl);
+            
+            URL url = URI.create(infoUrl).toURL();
+            connection = (HttpURLConnection) url.openConnection();
+            
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(10000);  // 10 second timeout for info check
+            connection.setReadTimeout(30000);     // 30 second read timeout (server may be busy)
+            connection.setRequestProperty("Accept", "application/json");
+            
+            if (authToken != null && !authToken.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + authToken);
+            }
+            
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                throw new AIAgentException("Agent info endpoint returned HTTP " + responseCode);
+            }
+            
+            try (InputStreamReader reader = new InputStreamReader(
+                    connection.getInputStream(), StandardCharsets.UTF_8)) {
+                StringBuilder sb = new StringBuilder();
+                char[] buffer = new char[1024];
+                int read;
+                while ((read = reader.read(buffer)) != -1) {
+                    sb.append(buffer, 0, read);
+                }
+                
+                String responseBody = sb.toString();
+                System.out.println("AIAgentClient: Agent info: " + responseBody);
+                JsonObject responseJson = JsonParser.parseString(responseBody).getAsJsonObject();
+                return AgentInfo.fromJson(responseJson);
+            }
+            
+        } catch (IOException e) {
+            throw new AIAgentException("Failed to get agent info: " + e.getMessage(), e);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Agent info returned from the /info endpoint.
+     * Contains metadata about the AI agent (type, model, version, etc.)
+     */
+    public static class AgentInfo {
+        private final String controllerType;  // "ai_agent", "forge-ai", "human"
+        private final String model;           // e.g., "gpt-oss:20b", "mistral", etc.
+        private final String version;         // Server version
+        private final String agentName;       // e.g., "simple_mtg_agent"
+        
+        public AgentInfo(String controllerType, String model, String version, String agentName) {
+            this.controllerType = controllerType;
+            this.model = model;
+            this.version = version;
+            this.agentName = agentName;
+        }
+        
+        public static AgentInfo fromJson(JsonObject json) {
+            String controllerType = json.has("controller_type") && !json.get("controller_type").isJsonNull()
+                ? json.get("controller_type").getAsString() : "unknown";
+            String model = json.has("model") && !json.get("model").isJsonNull()
+                ? json.get("model").getAsString() : "unknown";
+            String version = json.has("version") && !json.get("version").isJsonNull()
+                ? json.get("version").getAsString() : "unknown";
+            String agentName = json.has("agent_name") && !json.get("agent_name").isJsonNull()
+                ? json.get("agent_name").getAsString() : "unknown";
+            
+            return new AgentInfo(controllerType, model, version, agentName);
+        }
+        
+        public String getControllerType() { return controllerType; }
+        public String getModel() { return model; }
+        public String getVersion() { return version; }
+        public String getAgentName() { return agentName; }
+        
+        /**
+         * Get a display string for this agent (e.g., "ai_agent:gpt-oss:20b")
+         */
+        public String getDisplayString() {
+            return controllerType + ":" + model;
+        }
+        
+        @Override
+        public String toString() {
+            return "AgentInfo{controllerType='" + controllerType + "', model='" + model + 
+                   "', version='" + version + "', agentName='" + agentName + "'}";
+        }
+    }
+
+    /**
      * Request object sent to the AI agent.
      */
     public static class AIAgentRequest {
