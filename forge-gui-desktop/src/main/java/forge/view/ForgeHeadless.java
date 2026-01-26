@@ -273,11 +273,11 @@ public class ForgeHeadless {
         if (player1IsHuman) {
             if (p1AgentClient != null) {
                 // HTTP Agent player - controller type already set above from /info
-                RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Agent 1", p1AgentClient));
+                RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Agent 1", p1AgentClient, gameId));
                 players.add(rp1);
             } else {
                 // True GUI human (will use Forge's GUI input)
-                RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Player 1", null));
+                RegisteredPlayer rp1 = new RegisteredPlayer(deck1).setPlayer(new HeadlessLobbyPlayer("Player 1", null, gameId));
                 players.add(rp1);
                 p1ControllerType = "human";
                 System.out.println("Player 1 identified as: human");
@@ -295,11 +295,11 @@ public class ForgeHeadless {
         if (player2IsHuman) {
             if (p2AgentClient != null) {
                 // HTTP Agent player - controller type already set above from /info
-                RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Agent 2", p2AgentClient));
+                RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Agent 2", p2AgentClient, gameId));
                 players.add(rp2);
             } else {
                 // True GUI human
-                RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Player 2", null));
+                RegisteredPlayer rp2 = new RegisteredPlayer(deck2).setPlayer(new HeadlessLobbyPlayer("Player 2", null, gameId));
                 players.add(rp2);
                 p2ControllerType = "human";
                 System.out.println("Player 2 identified as: human");
@@ -930,10 +930,12 @@ public class ForgeHeadless {
 
     private static class HeadlessLobbyPlayer extends forge.ai.LobbyPlayerAi {
         private final AIAgentClient agentClient;
-        
-        public HeadlessLobbyPlayer(String name, AIAgentClient client) {
+        private final String gameId;
+
+        public HeadlessLobbyPlayer(String name, AIAgentClient client, String gameId) {
             super(name, null);
             this.agentClient = client;
+            this.gameId = gameId;
         }
 
         @Override
@@ -941,7 +943,7 @@ public class ForgeHeadless {
             Player player = new Player(getName(), game, id);
             // Use PlayerControllerRemote with the player's specific agent client
             if (agentClient != null) {
-                player.setFirstController(new forge.ai.PlayerControllerRemote(game, player, this, agentClient));
+                player.setFirstController(new forge.ai.PlayerControllerRemote(game, player, this, agentClient, gameId));
             } else {
                 // Fallback to basic AI if no agent configured
                 player.setFirstController(new forge.ai.PlayerControllerAi(game, player, this));

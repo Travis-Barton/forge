@@ -37,17 +37,24 @@ public class PlayerControllerRemote extends PlayerControllerAi {
     private final String playerId;
 
     public PlayerControllerRemote(Game game, Player player, LobbyPlayerAi lobbyPlayer, AIAgentClient aiAgentClient) {
+        this(game, player, lobbyPlayer, aiAgentClient, null);
+    }
+
+    public PlayerControllerRemote(Game game, Player player, LobbyPlayerAi lobbyPlayer, AIAgentClient aiAgentClient, String externalGameId) {
         super(game, player, lobbyPlayer);
         this.aiAgentClient = aiAgentClient;
-        
-        // Generate or retrieve a shared UUID for this game
-        // Both players in the same game will get the same gameId
-        this.gameId = GAME_UUID_MAP.computeIfAbsent(game.getId(), 
-            k -> UUID.randomUUID().toString());
-        
+
+        // Use external game ID if provided, otherwise generate or retrieve a shared UUID
+        if (externalGameId != null && !externalGameId.isEmpty()) {
+            this.gameId = externalGameId;
+        } else {
+            this.gameId = GAME_UUID_MAP.computeIfAbsent(game.getId(),
+                k -> UUID.randomUUID().toString());
+        }
+
         // Generate a unique UUID for this player
         this.playerId = UUID.randomUUID().toString();
-        
+
         System.out.println("PlayerControllerRemote instantiated. GameID: " + gameId + ", PlayerID: " + playerId);
     }
     
@@ -734,27 +741,39 @@ public class PlayerControllerRemote extends PlayerControllerAi {
             JsonArray attackers = new JsonArray();
             for (Card attacker : combat.getAttackers()) {
                 JsonObject att = new JsonObject();
-                att.addProperty("name", attacker.getName());
-                att.addProperty("id", attacker.getId());
+                // Use consistent field names that match what Python server expects
+                att.addProperty("card_name", attacker.getName());
+                att.addProperty("card_id", attacker.getId());
+                att.addProperty("power", attacker.getNetPower());
+                att.addProperty("toughness", attacker.getNetToughness());
+                
+                // Add combat-relevant keywords for decision making
+                att.add("keywords", getCombatKeywords(attacker));
+                
+                // Get what this attacker is attacking
+                GameEntity attacked = combat.getDefenderByAttacker(attacker);
+                att.addProperty("attacking_id", attacked != null ? attacked.getId() : -1);
+                att.addProperty("attacking_name", attacked != null ? attacked.getName() : "Unknown");
+                
+                // Include current blockers for this attacker
+                JsonArray blockerArray = new JsonArray();
+                CardCollection blockingCards = combat.getBlockers(attacker);
+                if (blockingCards != null) {
+                    for (Card blocker : blockingCards) {
+                        JsonObject blk = new JsonObject();
+                        blk.addProperty("card_name", blocker.getName());
+                        blk.addProperty("card_id", blocker.getId());
+                        blk.addProperty("power", blocker.getNetPower());
+                        blk.addProperty("toughness", blocker.getNetToughness());
+                        blk.add("keywords", getCombatKeywords(blocker));
+                        blockerArray.add(blk);
+                    }
+                }
+                att.add("blockers", blockerArray);
+                
                 attackers.add(att);
             }
             combatJson.add("attackers", attackers);
-
-            JsonArray blockers = new JsonArray();
-            for (Card attacker : combat.getAttackers()) {
-                CardCollection blockingCards = combat.getBlockers(attacker);
-                if (blockingCards != null && !blockingCards.isEmpty()) {
-                    for (Card blocker : blockingCards) {
-                        JsonObject blk = new JsonObject();
-                        blk.addProperty("blocker_name", blocker.getName());
-                        blk.addProperty("blocker_id", blocker.getId());
-                        blk.addProperty("attacker_name", attacker.getName());
-                        blk.addProperty("attacker_id", attacker.getId());
-                        blockers.add(blk);
-                    }
-                }
-            }
-            combatJson.add("blockers", blockers);
 
             state.add("combat", combatJson);
         }
@@ -812,6 +831,45 @@ public class PlayerControllerRemote extends PlayerControllerAi {
             zoneArray.add(cardObj);
         }
         return zoneArray;
+    }
+
+    /**
+     * Extract combat-relevant keywords from a creature card.
+     * These are critical for making correct blocking/attacking decisions.
+     */
+    private JsonArray getCombatKeywords(Card c) {
+        JsonArray keywords = new JsonArray();
+        
+        // Evasion abilities
+        if (c.hasKeyword(forge.game.keyword.Keyword.FLYING)) keywords.add("flying");
+        if (c.hasKeyword(forge.game.keyword.Keyword.MENACE)) keywords.add("menace");
+        if (c.hasKeyword(forge.game.keyword.Keyword.SHADOW)) keywords.add("shadow");
+        if (c.hasKeyword(forge.game.keyword.Keyword.FEAR)) keywords.add("fear");
+        if (c.hasKeyword(forge.game.keyword.Keyword.INTIMIDATE)) keywords.add("intimidate");
+        if (c.hasKeyword(forge.game.keyword.Keyword.HORSEMANSHIP)) keywords.add("horsemanship");
+        if (c.hasKeyword(forge.game.keyword.Keyword.SKULK)) keywords.add("skulk");
+        
+        // Blocking abilities
+        if (c.hasKeyword(forge.game.keyword.Keyword.REACH)) keywords.add("reach");
+        if (c.hasKeyword(forge.game.keyword.Keyword.DEFENDER)) keywords.add("defender");
+        
+        // Combat damage modifiers
+        if (c.hasKeyword(forge.game.keyword.Keyword.FIRST_STRIKE)) keywords.add("first_strike");
+        if (c.hasKeyword(forge.game.keyword.Keyword.DOUBLE_STRIKE)) keywords.add("double_strike");
+        if (c.hasKeyword(forge.game.keyword.Keyword.DEATHTOUCH)) keywords.add("deathtouch");
+        if (c.hasKeyword(forge.game.keyword.Keyword.LIFELINK)) keywords.add("lifelink");
+        if (c.hasKeyword(forge.game.keyword.Keyword.TRAMPLE)) keywords.add("trample");
+        if (c.hasKeyword(forge.game.keyword.Keyword.INFECT)) keywords.add("infect");
+        if (c.hasKeyword(forge.game.keyword.Keyword.WITHER)) keywords.add("wither");
+        
+        // Protection/survival
+        if (c.hasKeyword(forge.game.keyword.Keyword.INDESTRUCTIBLE)) keywords.add("indestructible");
+        if (c.hasKeyword(forge.game.keyword.Keyword.HEXPROOF)) keywords.add("hexproof");
+        if (c.hasKeyword(forge.game.keyword.Keyword.SHROUD)) keywords.add("shroud");
+        if (c.hasKeyword(forge.game.keyword.Keyword.VIGILANCE)) keywords.add("vigilance");
+        if (c.hasKeyword(forge.game.keyword.Keyword.HASTE)) keywords.add("haste");
+        
+        return keywords;
     }
 
     /**
